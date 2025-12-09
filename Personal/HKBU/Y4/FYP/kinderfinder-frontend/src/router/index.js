@@ -1,0 +1,95 @@
+import { createRouter, createWebHistory } from 'vue-router';
+import Home from '../views/Home.vue';
+
+const routes = [
+  {
+    path: '/home',
+    name: 'Home',
+    component: Home
+  },
+  {
+      path: '/login',
+      name: 'Login',
+      component: () => import('../views/LoginView.vue')
+    },
+    {
+      path: '/signup',
+      name: 'Sign Up',
+      component: () => import('../views/SignUpView.vue')
+    },
+    {
+      path: '/verify/:email',
+      name: 'Verify',
+      component: () => import('../views/VerifyView.vue'),
+      props: true
+    },
+    {
+      path: '/verifysuccessful',
+      name: 'Verify Successful',
+      props: true,
+      component: () => import('../views/VeirfySuccessView.vue')
+    },
+    {
+      path: '/forgot-password',
+      name: 'Forrot Password',
+      component: () => import('../views/ResetPassswordView.vue')
+    },
+    {
+      path: '/getstarted',
+      name: 'Get Started',
+      component: () => import('../views/HoeToGetStartedView.vue')
+    },
+    {
+      path: '/resources',
+      name: 'Resources',
+      component: () => import('../views/ResourcesView.vue')
+    },
+    {
+      path: '/resources/detail/:sectionID/:articleId',
+      name: 'Detailed Resources',
+      component: () => import('../views/DetailResourcesView.vue')
+    },
+    {
+      path: '/resource/add',
+      name: 'Add Resource',
+      component: () => import('../views/AddResourceView.vue')
+    },
+    {
+      path: '/resource/edit/:sectionID/:articleId',
+      name: 'Edit Resource',
+      component: () => import('../views/AddResourceView.vue')
+    },
+    {
+      path: '/discussions',
+      name: 'All discussions',
+      component: () => import('../views/DiscussionsView.vue')
+    },
+    {
+      path: '/discussion/add',
+      name: 'Add discussions',
+      component: () => import('../views/AddDiscussionView.vue')
+    },
+    {
+      path: '/discussion/detail/:discussionId',
+      name: 'Detail discussions',
+      component: () => import('../views/DetailDiscussionView.vue')
+    },
+    {
+      path: '/kindergartens',
+      name: 'All kindergartens',
+      component: () => import('../views/KindergartensView.vue')
+    },
+    {
+      path: '/kindergarten/detail/:kindergartenId',
+      name: 'Detail kindergarten',
+      component: () => import('../views/DetailKindergartenView.vue')
+    },
+
+];
+
+const router = createRouter({
+  history: createWebHistory(),
+  routes
+});
+
+export default router;
