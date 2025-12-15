@@ -1,6 +1,14 @@
 <script setup>
 import { ref } from 'vue';
 import i18n from '../src/i18n';
+import { onMounted } from 'vue'
+
+onMounted(() => {
+  console.log('Bootstrap available?', !!window.bootstrap)
+  if (window.bootstrap) {
+    console.log('Dropdown class exists:', window.bootstrap.Dropdown)
+  }
+})
 
 const isLoggedIn = ref(!!localStorage.getItem('token'));
 const isAdmin = ref(localStorage.getItem('isAdmin') === 'true');
@@ -35,6 +43,21 @@ const setLang = (lang) => {
   i18n.global.locale.value = lang;
   localStorage.setItem('lang', lang);
 };
+
+const fontSize = ref(localStorage.getItem('fontSize') || 'normal')
+
+// Apply saved size on load
+document.documentElement.setAttribute('data-font-size', fontSize.value)
+
+const setFontSize = (size) => {
+  fontSize.value = size
+  localStorage.setItem('fontSize', size)
+
+  // Apply to <html> so entire app scales
+  document.documentElement.setAttribute('data-font-size', size)
+}
+
+
 </script>
 
 <style>
@@ -61,9 +84,27 @@ const setLang = (lang) => {
   padding: 0.25rem 0.4rem;
 }
 .nav-control-btn:focus { outline: none; box-shadow: none; }
+
+:root[data-font-size="small"] {
+  font-size: 14px;
+}
+
+:root[data-font-size="normal"] {
+  font-size: 16px;
+}
+
+:root[data-font-size="large"] {
+  font-size: 18px;
+}
+
+:root[data-font-size="xlarge"] {
+  font-size: 20px;
+}
+
 </style>
 
 <template>
+  
   <header>
     <nav class="navbar navbar-expand-lg navbar-kinder">
       <div class="container-fluid">
@@ -84,32 +125,80 @@ const setLang = (lang) => {
           <div class="d-flex align-items-center">
             <!-- Language Dropdown -->
             <div class="dropdown ms-2">
-              <button class="btn nav-control-btn dropdown-toggle" type="button" data-bs-toggle="dropdown">
+              <button 
+                class="btn nav-control-btn dropdown-toggle" 
+                type="button" 
+                data-bs-toggle="dropdown"
+                aria-expanded="false"
+              >
                 <i class="bi bi-globe" style="font-size:1.25rem;"></i>
               </button>
               <ul class="dropdown-menu dropdown-menu-end">
-                <li><a class="dropdown-item" @click="setLang('en')">English</a></li>
-                <li><a class="dropdown-item" @click="setLang('zh')">繁體中文</a></li>
+                <li><button class="dropdown-item" type="button" @click="setLang('en')">English</button></li>
+                <li><button class="dropdown-item" type="button" @click="setLang('zh')">繁體中文</button></li>
               </ul>
             </div>
 
-            <!-- Sign Up -->
-            <a class="btn nav-control-btn" href="/signup" title="Sign up">
-              <i class="bi bi-person-plus" style="font-size:1.25rem;"></i> 
-              <!-- {{ $t('signup') }} -->
-            </a>
+            <!-- Font Size Dropdown -->
+            <div class="dropdown ms-2">
+              <button 
+                class="btn nav-control-btn dropdown-toggle" 
+                type="button" 
+                data-bs-toggle="dropdown"
+                aria-expanded="false"
+              >
+                <i class="bi bi-textarea-t" style="font-size:1.25rem;"></i>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li>
+                  <button class="dropdown-item d-flex align-items-center gap-3 py-2" type="button" @click="setFontSize('small')">
+                    <span class="fw-bold" style="font-size: 12px;">Aa</span>
+                    Small
+                  </button>
+                </li>
+                <li>
+                  <button class="dropdown-item d-flex align-items-center gap-3 py-2" type="button" @click="setFontSize('normal')">
+                    <span class="fw-bold" style="font-size: 16px;">Aa</span>
+                    Normal
+                  </button>
+                </li>
+                <li>
+                  <button class="dropdown-item d-flex align-items-center gap-3 py-2" type="button" @click="setFontSize('large')">
+                    <span class="fw-bold" style="font-size: 20px;">Aa</span>
+                    Large
+                  </button>
+                </li>
+                <li>
+                  <button class="dropdown-item d-flex align-items-center gap-3 py-2" type="button" @click="setFontSize('xlarge')">
+                    <span class="fw-bold" style="font-size: 24px;">Aa</span>
+                    Extra Large
+                  </button>
+                </li>
+              </ul>
+            </div>
 
+              <!-- Profile Button -->
+            <template v-if="isLoggedIn">
+              <a class="btn nav-control-btn ms-2" href="/profile" title="My Profile">
+                <i class="bi bi-person-circle" style="font-size:1.3rem;"></i>
+              </a>
+            </template>
+
+            <!-- Sign Up -->
+            <template v-if="!isLoggedIn">
+              <a class="btn nav-control-btn" href="/signup" title="Sign up">
+                <i class="bi bi-person-plus" style="font-size:1.25rem;"></i> 
+              </a>
+            </template>
             <!-- Logout/Login -->
             <template v-if="isLoggedIn">
               <button class="btn nav-control-btn ms-2" @click="logout" title="Logout">
                 <i class="bi bi-box-arrow-right" style="font-size:1.25rem; margin-right: 3px;"></i> 
-                <!-- {{ $t('logout') }} -->
               </button>
             </template>
             <template v-else>
               <a class="btn nav-control-btn ms-2" href="/login" title="Login">
                 <i class="bi bi-box-arrow-in-right" style="font-size:1.25rem; margin-right: 3px;"></i> 
-                <!-- {{ $t('login') }} -->
               </a>
             </template>
           </div>

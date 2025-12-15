@@ -18,6 +18,11 @@ const routes = [
       component: () => import('../views/SignUpView.vue')
     },
     {
+      path: '/profile',
+      name: 'Personal Profile',
+      component: () => import('../views/ProfileView.vue')
+    },
+    {
       path: '/verify/:email',
       name: 'Verify',
       component: () => import('../views/VerifyView.vue'),
@@ -82,7 +87,8 @@ const routes = [
     {
       path: '/kindergarten/detail/:kindergartenId',
       name: 'Detail kindergarten',
-      component: () => import('../views/DetailKindergartenView.vue')
+      component: () => import('../views/DetailKindergartenView.vue'),
+      props: true
     },
 
 ];

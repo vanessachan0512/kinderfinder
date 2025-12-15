@@ -1,6 +1,7 @@
 <script>
 import { Modal } from 'bootstrap';
-import 'emoji-picker-element'; // registers <emoji-picker> as a web component
+import 'emoji-picker-element';
+import { jwtDecode } from "jwt-decode";
 
 export default {
   data() {
@@ -19,7 +20,8 @@ export default {
         password: '',
         passwordConfirm: '',
         agree: false,
-        profileEmoji: ''
+        profileEmoji: '🐥',
+        profilePicture: null  // file object
       },
       emailExists: false,
       passwordMatch: true,
@@ -30,7 +32,7 @@ export default {
         number: false,
         symbol: false
       },
-      profilePreview: '/images/logo.png',
+      profilePreview: null,
       emojiPickerVisible: false,
       passwordVisible: false,
       countries: [
@@ -39,8 +41,7 @@ export default {
         { code: 'US', name: 'United States' },
         { code: 'GB', name: 'United Kingdom' },
         { code: 'JP', name: 'Japan' },
-        { code: 'TW', name: 'Taiwan' },
-        // add more as needed
+        { code: 'TW', name: 'Taiwan' }
       ],
       termsModalInstance: null
     };
@@ -59,8 +60,9 @@ export default {
       })
         .then(r => r.json())
         .then(data => { this.emailExists = !!data.exists; })
-        .catch(err => console.error('Error checking email:', err));
+        .catch(err => console.error('Error:', err));
     },
+
     togglePasswordVisibility() {
       this.passwordVisible = !this.passwordVisible;
     },
@@ -81,11 +83,10 @@ export default {
     previewProfilePicture(event) {
       const file = event.target.files?.[0];
       if (!file) return;
+      this.form.profilePicture = file;
       const reader = new FileReader();
       reader.onload = e => { this.profilePreview = e.target.result; };
       reader.readAsDataURL(file);
-      // keep the file so you can submit it later
-      this.form.profilePicture = file;
     },
 
     toggleEmojiPicker() {
@@ -93,9 +94,9 @@ export default {
     },
 
     onEmojiClick(event) {
-      // emoji-picker-element emits detail with .emoji, .unicode, etc.
-      const emoji = event.detail.unicode || event.detail.emoji;
+      const emoji = event.detail.unicode;
       this.form.profileEmoji = emoji;
+      this.profilePreview = null; // clear photo preview if emoji chosen
       this.emojiPickerVisible = false;
     },
 
@@ -108,254 +109,253 @@ export default {
 
     agreeToTerms() {
       this.form.agree = true;
-      if (this.termsModalInstance) this.termsModalInstance.hide();
+      this.termsModalInstance.hide();
     },
 
     async submitForm() {
-      // basic validations
-      if (this.emailExists) {
-        alert('This email has already been registered.');
-        return;
-      }
-      if (!this.passwordMatch) {
-        alert('Passwords do not match.');
-        return;
-      }
-      if (!this.form.agree) {
-        alert('You must agree to terms.');
-        return;
-      }
+      if (this.emailExists) return alert('This email is already registered.');
+      if (!this.passwordMatch) return alert('Passwords do not match.');
+      if (!this.form.agree) return alert('Please agree to the terms.');
 
-      // build multipart form payload (includes file + fields)
       const payload = new FormData();
-      const {
-        firstName, middleName, lastName, birth, gender, country,
-        email, username, securityQuestion, securityAnswer,
-        password, passwordConfirm, agree, profileEmoji, profilePicture
-      } = this.form;
-
-      payload.append('firstName', firstName);
-      payload.append('middleName', middleName);
-      payload.append('lastName', lastName);
-      payload.append('birth', birth);
-      payload.append('gender', gender);
-      payload.append('country', country);
-      payload.append('email', email);
-      payload.append('username', username);
-      payload.append('securityQuestion', securityQuestion);
-      payload.append('securityAnswer', securityAnswer);
-      payload.append('password', password);
-      payload.append('passwordConfirm', passwordConfirm);
-      payload.append('agree', String(agree));
-      payload.append('profileEmoji', profileEmoji);
-      if (profilePicture) payload.append('profilePicture', profilePicture);
+      Object.entries(this.form).forEach(([key, value]) => {
+        if (value !== null && value !== '') {
+          payload.append(key, value);
+        }
+      });
 
       try {
         const res = await fetch('/api/signup', { method: 'POST', body: payload });
         if (!res.ok) {
-            const errorData = await res.json(); // Get response body
-            throw new Error(`Signup failed (${res.status}): ${errorData.message || errorData.error}`);
+          const err = await res.json();
+          throw new Error(err.message || 'Signup failed');
         }
-        alert('You need to verify your account!');
-        // Redirect after a short delay
-        // setTimeout(() => {
-        console.log('Navigating to Verify with email:', this.form.email);
-        this.$router.push({ name: 'Verify', params: { email: this.form.email }}); // Ensure email is defined
-        // }, 1000); // Delay for 1 second (1000 ms)
-
-        } catch (err) {
-        console.error('Signup error:', err);
+        alert('Success! Please check your email to verify your account.');
+        this.$router.push({ name: 'Verify', params: { email: this.form.email } });
+      } catch (err) {
+        console.error(err);
         alert('Error during signup. Please try again.');
-        }
+      }
+    }
+  },
+
+  watch: {
+    'form.password'() {
+      this.checkPasswordRequirements();
+      this.validatePasswordMatch();
+    },
+    'form.passwordConfirm'() {
+      this.validatePasswordMatch();
     }
   }
 };
 </script>
 
-html
 <template>
-  <div class="container">
-    <div class="d-flex align-items-center justify-content-between mt-4 mb-4">
-      <h1 class="m-0">Sign Up</h1>
-      <div class="text-end text-muted">Welcome! Sign Up to get more function!</div>
-    </div>
+  <div class="min-vh-100 bg-gradient-light py-5">
+    <!-- Use container-fluid for wider layout -->
+    <div class="container-fluid px-4 px-lg-5">
+      <!-- Header -->
+      <div class="text-center mb-5">
+        <h2 class="display-5 fw-bold mb-3">
+          Join KinderFinder 👨‍👩‍👧‍👦
+        </h2>
+        <p class="lead text-muted col-lg-10 mx-auto">
+          Create your parent account to connect with other families, share experiences, and find the best kindergarten for your child.
+        </p>
+      </div>
 
-    <form @submit.prevent="submitForm" enctype="multipart/form-data">
-      <div class="row">
-        <div class="col-lg-8">
-          <div class="row g-3">
-            <!-- Names -->
-            <div class="col-md-4">
-              <label class="form-label">First name</label>
-              <input v-model="form.firstName" type="text" class="form-control" required>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label">Middle name</label>
-              <input v-model="form.middleName" type="text" class="form-control">
-            </div>
-            <div class="col-md-4">
-              <label class="form-label">Last name</label>
-              <input v-model="form.lastName" type="text" class="form-control" required>
-            </div>
+      <div class="row justify-content-center">
+        <!-- Full width card -->
+        <div class="col-12">
+          <div class="card shadow-lg border-0 rounded-4 overflow-hidden">
+            <div class="row g-0">
+              <!-- Left: Form – now much wider -->
+              <div class="col-lg-9 bg-white p-4 p-md-5">
+                <form @submit.prevent="submitForm">
+                  <!-- Personal Info -->
+                  <h5 class="mb-3 text-primary">Personal Information</h5>
+                  <div class="row g-3 mb-3">
+                    <div class="col-md-4">
+                      <label class="form-label fw-semibold">First Name <span class="text-danger">*</span></label>
+                      <input v-model="form.firstName" type="text" class="form-control form-control-lg" required>
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label fw-semibold">Middle Name</label>
+                      <input v-model="form.middleName" type="text" class="form-control form-control-lg">
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label fw-semibold">Last Name <span class="text-danger">*</span></label>
+                      <input v-model="form.lastName" type="text" class="form-control form-control-lg" required>
+                    </div>
 
-            <!-- Birth / Gender / Country -->
-            <div class="col-md-4">
-              <label class="form-label">Birth</label>
-              <input v-model="form.birth" type="date" class="form-control">
-            </div>
-            <div class="col-md-4">
-              <label class="form-label">Gender</label>
-              <select v-model="form.gender" class="form-select" required>
-                <option disabled value="">Choose...</option>
-                <option value="female">Female</option>
-                <option value="male">Male</option>
-              </select>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label">Country</label>
-              <select v-model="form.country" class="form-select" required>
-                <option value="" disabled>Select country</option>
-                <option v-for="c in countries" :key="c.code" :value="c.code">{{ c.name }}</option>
-              </select>
-            </div>
+                    <div class="col-md-4">
+                      <label class="form-label fw-semibold">Date of Birth</label>
+                      <input v-model="form.birth" type="date" class="form-control form-control-lg">
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label fw-semibold">Gender <span class="text-danger">*</span></label>
+                      <select v-model="form.gender" class="form-select form-control-lg" required>
+                        <option value="" disabled>Select gender</option>
+                        <option value="female">Female</option>
+                        <option value="male">Male</option>
+                        <option value="other">Other</option>
+                        <option value="prefer-not">Prefer not to say</option>
+                      </select>
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label fw-semibold">Country <span class="text-danger">*</span></label>
+                      <select v-model="form.country" class="form-select form-control-lg" required>
+                        <option value="" disabled>Select country</option>
+                        <option v-for="c in countries" :key="c.code" :value="c.code">{{ c.name }}</option>
+                      </select>
+                    </div>
+                  </div>
 
-            <!-- Email / Username -->
-            <div class="col-md-8">
-              <label class="form-label">Email</label>
-              <input v-model="form.email" type="email" class="form-control" @blur="checkEmail" required>
-              <div class="alert-placeholder mt-1" v-if="emailExists">
-                <span class="text-danger">This email has already been registered.</span>
-              </div>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label">Username</label>
-              <input v-model="form.username" type="text" class="form-control" required>
-            </div>
+                  <!-- Account Info -->
+                  <h5 class="mb-3 text-primary">Account Details</h5>
+                  <div class="row g-3 mb-3">
+                    <div class="col-md-8">
+                      <label class="form-label fw-semibold">Email Address <span class="text-danger">*</span></label>
+                      <input v-model="form.email" type="email" class="form-control form-control-lg" @blur="checkEmail" required>
+                      <small v-if="emailExists" class="text-danger d-block mt-1">This email is already registered.</small>
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label fw-semibold">Username <span class="text-danger">*</span></label>
+                      <input v-model="form.username" type="text" class="form-control form-control-lg" placeholder="" required>
+                    </div>
+                  </div>
 
-            <!-- Security question and answer -->
-            <div class="col-md-6">
-              <label class="form-label">Security question</label>
-              <select v-model="form.securityQuestion" class="form-select" required>
-                <option value="">Choose a question...</option>
-                <option value="What is your mother's name?">What is your mother's name?</option>
-                <option value="What is your father's name?">What is your father's name?</option>
-                <option value="What was the name of your first pet?">What was the name of your first pet?</option>
-                <option value="What was the name of your first school?">What was the name of your first school?</option>
-                <option value="In which city were you born?">In which city were you born?</option>
-              </select>
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Security answer</label>
-              <input v-model="form.securityAnswer" type="text" class="form-control" required>
-            </div>
+                  <!-- Security Question -->
+                  <h5 class="mb-3 text-primary">Security Question (for account recovery)</h5>
+                  <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                      <label class="form-label fw-semibold">Question <span class="text-danger">*</span></label>
+                      <select v-model="form.securityQuestion" class="form-select form-control-lg" required>
+                        <option value="" disabled>Choose a question...</option>
+                        <option>What is your mother's maiden name?</option>
+                        <option>What was your first pet's name?</option>
+                        <option>What was your first school?</option>
+                        <option>In which city were you born?</option>
+                        <option>What is your favorite childhood book?</option>
+                      </select>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label fw-semibold">Answer <span class="text-danger">*</span></label>
+                      <input v-model="form.securityAnswer" type="text" class="form-control form-control-lg" required>
+                    </div>
+                  </div>
 
-            <!-- Passwords with visibility toggle -->
-            <div class="col-md-6">
-              <label class="form-label">Password</label>
-              <div class="input-group">
-                <input
-                  v-model="form.password"
-                  :type="passwordVisible ? 'text' : 'password'"
-                  class="form-control"
-                  @input="checkPasswordRequirements(); validatePasswordMatch()"
-                  required
-                >
-                <button type="button" class="btn btn-outline-secondary" @click="togglePasswordVisibility">
-                  <i :class="passwordVisible ? 'bi bi-eye' : 'bi bi-eye-slash'"></i>
-                </button>
-              </div>
-              <ul class="list-unstyled small mt-2" aria-live="polite">
-                <li :class="passwordRequirements.length ? 'text-success' : 'text-muted'">
-                  <i :class="passwordRequirements.length ? 'bi bi-check-circle-fill me-1' : 'bi bi-circle me-1'"></i>
-                  At least 8 characters
-                </li>
-                <li :class="passwordRequirements.upper ? 'text-success' : 'text-muted'">
-                  <i :class="passwordRequirements.upper ? 'bi bi-check-circle-fill me-1' : 'bi bi-circle me-1'"></i>
-                  At least one uppercase letter (A-Z)
-                </li>
-                <li :class="passwordRequirements.lower ? 'text-success' : 'text-muted'">
-                  <i :class="passwordRequirements.lower ? 'bi bi-check-circle-fill me-1' : 'bi bi-circle me-1'"></i>
-                  At least one lowercase letter (a-z)
-                </li>
-                <li :class="passwordRequirements.number ? 'text-success' : 'text-muted'">
-                  <i :class="passwordRequirements.number ? 'bi bi-check-circle-fill me-1' : 'bi bi-circle me-1'"></i>
-                  At least one number (0-9)
-                </li>
-                <li :class="passwordRequirements.symbol ? 'text-success' : 'text-muted'">
-                  <i :class="passwordRequirements.symbol ? 'bi bi-check-circle-fill me-1' : 'bi bi-circle me-1'"></i>
-                  At least one symbol (e.g. !@#$%)
-                </li>
-              </ul>
-            </div>
+                  <!-- Password -->
+                  <h5 class="mb-3 text-primary">Create Password</h5>
+                  <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                      <label class="form-label fw-semibold">Password <span class="text-danger">*</span></label>
+                      <div class="input-group">
+                        <input
+                          v-model="form.password"
+                          :type="passwordVisible ? 'text' : 'password'"
+                          class="form-control form-control-lg"
+                          required
+                        >
+                        <button type="button" class="btn btn-outline-secondary" @click="togglePasswordVisibility">
+                          <i :class="passwordVisible ? 'bi bi-eye' : 'bi bi-eye-slash'"></i>
+                        </button>
+                      </div>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label fw-semibold">Confirm Password <span class="text-danger">*</span></label>
+                      <input v-model="form.passwordConfirm" type="password" class="form-control form-control-lg" required>
+                      <small v-if="!passwordMatch && form.passwordConfirm" class="text-danger d-block mt-1">Passwords don't match</small>
+                    </div>
+                  </div>
 
-            <div class="col-md-6">
-              <label class="form-label">Confirm Password</label>
-              <input
-                v-model="form.passwordConfirm"
-                type="password"
-                class="form-control"
-                @input="validatePasswordMatch"
-                required
-              >
-              <div class="invalid-feedback d-block" v-if="!passwordMatch">Passwords do not match.</div>
-            </div>
+                  <div class="alert alert-info small p-3 mb-3">
+                    <strong>Your password must contain:</strong>
+                    <ul class="mb-0 mt-2 small">
+                      <li :class="{ 'text-success': passwordRequirements.length }">✓ 8+ characters</li>
+                      <li :class="{ 'text-success': passwordRequirements.upper }">✓ One uppercase letter</li>
+                      <li :class="{ 'text-success': passwordRequirements.lower }">✓ One lowercase letter</li>
+                      <li :class="{ 'text-success': passwordRequirements.number }">✓ One number</li>
+                      <li :class="{ 'text-success': passwordRequirements.symbol }">✓ One symbol (!@#$% etc.)</li>
+                    </ul>
+                  </div>
 
-            <!-- Agree -->
-            <div class="col-12 form-check d-flex align-items-center">
-              <input v-model="form.agree" class="form-check-input me-2" type="checkbox" id="agree" required>
-              <label class="form-check-label me-3" for="agree">Agree to terms and conditions</label>
-              <button type="button" class="btn btn-link p-0" @click="showTerms">View terms</button>
-            </div>
+                  <!-- Terms -->
+                  <div class="form-check mb-3">
+                    <input v-model="form.agree" class="form-check-input" type="checkbox" id="agree" required>
+                    <label class="form-check-label fw-semibold" for="agree">
+                      I agree to the <button type="button" class="btn btn-link p-0 align-baseline" @click="showTerms">Terms & Conditions</button> <span class="text-danger">*</span>
+                    </label>
+                  </div>
 
-            <div class="col-12">
-              <button type="submit" class="btn btn-primary">Submit</button>
-            </div>
-          </div>
-        </div>
+                  <!-- Submit -->
+                  <button type="submit" class="btn btn-primary btn-lg text-dark w-100 shadow-sm rounded-pill py-3" style="background: linear-gradient(135deg, #85e8ca 0%, #9af0df 100%);">
+                    Create Account
+                  </button>
 
-        <!-- Right column: profile picture + emoji -->
-        <div class="col-lg-4">
-          <div class="card" style="max-width:320px; margin-left: 30%;">
-            <div class="card-body text-center">
-              <h5 class="card-title">Profile Picture</h5>
-              <div class="mb-3" style="position:relative; width:200px; height:200px; margin:0 auto;">
-                <img 
-                  v-if="profileImage" 
-                  :src="profileImage" 
-                  alt="Profile Picture" 
-                  style="width:100%; height:100%; object-fit:cover; border-radius:6px; display:block;" 
-                >
-                <span v-else-if="form.profileEmoji" style="font-size: 100px;">{{ form.profileEmoji }}</span>
-                <img v-else src="/images/logo.png" alt="Logo" style="width:100%; height:100%; object-fit:cover; border-radius:6px; display:block;" />
-              </div>
-              <div class="d-flex gap-2 justify-content-center">
-                <input type="file" @change="previewProfilePicture" accept="image/*" class="form-control">
-                <button type="button" class="btn btn-outline-secondary" @click="toggleEmojiPicker" title="Choose emoji">
-                  <i class="bi bi-emoji-smile"></i>
-                </button>
+                  <div class="text-center mt-4">
+                    <small class="text-muted">
+                      Already a member? <router-link to="/login" class="text-primary fw-semibold">Log in here</router-link>
+                    </small>
+                  </div>
+                </form>
               </div>
 
-              <!-- Use the web component directly instead of manual append -->
-              <div v-if="emojiPickerVisible" class="mt-2">
-                <emoji-picker @emoji-click="onEmojiClick"></emoji-picker>
-              </div>
+              <!-- Right: Profile Avatar – narrower but still prominent -->
+              <div class="col-lg-3 bg-gradient-primary text-dark d-flex align-items-center p-5">
+                <div class="w-100 text-center">
+                  <h4 class="mb-4">Your Icon</h4>
 
-              <input type="hidden" v-model="form.profileEmoji">
+                  <div class="profile-avatar mx-auto mb-4">
+                    <img 
+                      v-if="profilePreview"
+                      :src="profilePreview"
+                      class="rounded-circle shadow"
+                      style="width: 160px; height: 160px; object-fit: cover;"
+                    >
+                    <div v-else class="emoji-display">
+                      {{ form.profileEmoji }}
+                    </div>
+                  </div>
+
+                  <p class="mb-4 small">Choose a photo or emoji — this is how other parents will see you!</p>
+
+                  <div class="d-grid gap-3">
+                    <div>
+                      <label class="btn btn-light btn-lg rounded-pill shadow-sm w-100">
+                        Upload Photo
+                        <input type="file" @change="previewProfilePicture" accept="image/*" class="d-none">
+                      </label>
+                    </div>
+
+                    <button @click="toggleEmojiPicker" class="btn btn-light btn-lg rounded-pill shadow-sm w-100">
+                      Pick Emoji
+                    </button>
+                  </div>
+
+                  <div v-if="emojiPickerVisible" class="mt-4 bg-white rounded-4 shadow p-3">
+                    <emoji-picker @emoji-click="onEmojiClick"></emoji-picker>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </form>
 
-    <!-- Modal for Terms & Conditions -->
-    <div class="modal fade" id="termsModal" tabindex="-1" aria-labelledby="termsModalLabel" aria-hidden="true" ref="termsModal">
-      <div class="modal-dialog modal-lg modal-dialog-scrollable">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title" id="termsModalLabel">Terms and Conditions</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-          </div>
-          <div class="modal-body">
+      <!-- Terms Modal -->
+      <div class="modal fade" ref="termsModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+          <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+              <h5 class="modal-title">Terms & Conditions</h5>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+             
+
+
             <p>Welcome to KinderFinder. By accessing or using our website, you agree to comply with and be bound by the following terms and conditions. Please read them carefully.</p>
             <h6>1. Acceptance of Terms</h6>
             <p>By using our website, you agree to these Terms and Conditions and our Privacy Policy. If you do not agree, please do not use our services.</p>
@@ -382,10 +382,11 @@ html
             <p>We reserve the right to modify these Terms and Conditions at any time. Any changes will be effective immediately upon posting on our website.</p>
             <h6>7. Contact Us</h6>
             <p>If you have any questions about these Terms and Conditions, please contact us.</p>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-            <button type="button" class="btn btn-primary" @click="agreeToTerms">I Agree</button>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+              <button type="button" class="btn btn-primary" @click="agreeToTerms">I Agree</button>
+            </div>
           </div>
         </div>
       </div>
@@ -394,5 +395,35 @@ html
 </template>
 
 <style scoped>
-/* Optional tweaks */
+.bg-gradient-light {
+  background: linear-gradient(135deg, #f5f7fa 0%, #e4edf5 100%);
+}
+.bg-gradient-primary {
+  background: linear-gradient(135deg, #85e8ca 0%, #9af0df 100%);
+}
+.profile-avatar {
+  width: 200px;
+  height: 200px;
+  background: rgba(255,255,255,0.2);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 5px solid rgba(255,255,255,0.3);
+}
+.emoji-display {
+  font-size: 120px;
+}
+.form-control-lg, .form-select-lg {
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+}
+.btn-lg {
+  border-radius: 50px;
+  padding: 0.75rem 2rem;
+}
+.card {
+  box-shadow: 0 25px 50px rgba(0,0,0,0.15);
+  max-width: none; /* ensures no hidden width limits */
+}
 </style>

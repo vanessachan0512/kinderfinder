@@ -13,58 +13,58 @@
     </p>
 
     <!-- Steps -->
-    <div class="step" data-bs-toggle="collapse" data-bs-target="#step1">
+    <div class="step" data-bs-target="#step1">
       <i class="fa fa-user-plus icon"></i>
       <strong>Step 1: Sign Up</strong>
-      <div id="step1" class="collapse">
+      <div id="step1" >
         <p class="mt-3">Create your account by clicking the Sign Up button on our homepage.</p>
       </div>
     </div>
 
-    <div class="step" data-bs-toggle="collapse" data-bs-target="#step2">
+    <div class="step" data-bs-target="#step2">
       <i class="fa fa-pencil-alt icon"></i>
       <strong>Step 2: Profile Setup</strong>
-      <div id="step2" class="collapse">
+      <div id="step2">
         <p class="mt-3">Complete your profile with your child's information for personalized recommendations.</p>
       </div>
     </div>
 
-    <div class="step" data-bs-toggle="collapse" data-bs-target="#step3">
+    <div class="step" data-bs-target="#step3">
       <i class="fa fa-search icon"></i>
       <strong>Step 3: Explore Kindergartens</strong>
-      <div id="step3" class="collapse">
+      <div id="step3">
         <p class="mt-3">Browse through kindergartens by location and preferences.</p>
       </div>
     </div>
 
-    <div class="step" data-bs-toggle="collapse" data-bs-target="#step4">
+    <div class="step" data-bs-target="#step4">
       <i class="fa fa-star icon"></i>
       <strong>Step 4: Read Reviews</strong>
-      <div id="step4" class="collapse">
+      <div id="step4">
         <p class="mt-3">Check reviews from other parents to gain insights.</p>
       </div>
     </div>
 
-    <div class="step" data-bs-toggle="collapse" data-bs-target="#step5">
+    <div class="step" data-bs-target="#step5">
       <i class="fa fa-calendar-alt icon"></i>
       <strong>Step 5: Schedule Visits</strong>
-      <div id="step5" class="collapse">
-        <p class="mt-3">Contact kindergartens to schedule visits and meet teachers.</p>
+      <div id="step5" >
+        <p class="mt-3">Schedule kindergarten visits and meet teachers.</p>
       </div>
     </div>
 
-    <div class="step" data-bs-toggle="collapse" data-bs-target="#step6">
+    <div class="step" data-bs-target="#step6">
       <i class="fa fa-check-circle icon"></i>
       <strong>Step 6: Choose the Right Kindergarten</strong>
-      <div id="step6" class="collapse">
+      <div id="step6" >
         <p class="mt-3">Consider factors like educational philosophy, location, facilities, and reviews.</p>
       </div>
     </div>
 
-    <div class="step" data-bs-toggle="collapse" data-bs-target="#step7">
+    <div class="step" data-bs-target="#step7">
       <i class="fa fa-paper-plane icon"></i>
       <strong>Step 7: Enroll Your Child</strong>
-      <div id="step7" class="collapse">
+      <div id="step7">
         <p class="mt-3">Follow the kindergarten's process to enroll your child.</p>
       </div>
     </div>
