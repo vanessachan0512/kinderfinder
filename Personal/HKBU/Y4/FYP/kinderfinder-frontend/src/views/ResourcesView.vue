@@ -2,13 +2,86 @@
 import { ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { jwtDecode } from "jwt-decode"
+import { useResourceDetailStore } from '@/store/resourceDetail'
 
 const route = useRoute()
 const router = useRouter()
 
 const token = localStorage.getItem('token')
 const decoded = token ? jwtDecode(token) : null
+const userId = decoded?._id;
+const bookmarks = ref([]);
 
+if (decoded && Array.isArray(decoded.resourcesBookmark)) {
+  // If your backend puts resourcesBookmark directly in the JWT payload
+  bookmarks.value = decoded.resourcesBookmark
+    .map(id => typeof id === 'string' ? id : id.toString())
+  console.log('Bookmarks loaded instantly from JWT:', bookmarks.value)
+}
+
+// ✅ Load bookmarks from backend
+onMounted(async () => {
+  if (!userId) {
+    console.log('No user logged in — no bookmarks to load')
+    return
+  }
+
+  try {
+    const res = await fetch(`/api/users/${userId}`)
+    if (!res.ok) throw new Error('Failed to fetch user data')
+
+    const data = await res.json()
+
+    // This overwrites the instant JWT version with the authoritative server version
+    const serverBookmarks = (data.resourcesBookmark || []).map(id => 
+      typeof id === 'string' ? id : id.toString()
+    )
+
+    bookmarks.value = serverBookmarks
+    console.log('Bookmarks synced from server:', bookmarks.value)
+
+  } catch (err) {
+    console.error("Failed to load resource bookmarks from server:", err)
+    // Keep the JWT version if server fails (better than nothing)
+  }
+})
+
+// ✅ Optimistic UI toggle
+const toggleBookmark = async (articleId) => {
+  const idStr = articleId.toString();
+
+  // Save previous state for rollback
+  const previous = [...bookmarks.value];
+
+  // ✅ Instant UI update
+  if (bookmarks.value.includes(idStr)) {
+    bookmarks.value = bookmarks.value.filter(id => id !== idStr);
+  } else {
+    bookmarks.value.push(idStr);
+  }
+
+  // ✅ Backend update
+  try {
+    const res = await fetch(`/api/users/${decoded._id}/bookmark`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ articleId })
+    });
+
+    if (!res.ok) throw new Error("Backend failed");
+
+    const data = await res.json();
+
+    // Sync with backend
+    bookmarks.value = data.resourcesBookmark.map(id => id.toString());
+
+  } catch (err) {
+    console.error("Bookmark toggle failed:", err);
+
+    // Rollback UI
+    bookmarks.value = previous;
+  }
+};
 
 // Data
 const sections = ref([])
@@ -86,6 +159,19 @@ function goToEdit(section, article) {
         _id: section._id,
         name: section.section
       }
+    }
+  })
+}
+
+const goToDetail = (sectionId, article) => {
+  const store = useResourceDetailStore()
+  store.setPassedData(article, bookmarks.value.includes(article.objectId.toString()))
+
+  router.push({
+    name: "DetailResources",
+    params: {
+      sectionID: sectionId,
+      articleId: article.objectId
     }
   })
 }
@@ -193,11 +279,22 @@ watch(page, (current) => {
         >
           <div class="row row-cols-1 row-cols-md-3 g-4">
             <div v-for="article in section.articles" :key="article.objectId" class="col">
-              <div class="card h-100 shadow-sm hover-shadow transition-all border-0 overflow-hidden">
-                <RouterLink
-                  :to="`/resources/detail/${section._id}/${article.objectId}`"
-                  class="text-decoration-none text-dark"
+              <div class="card h-100 shadow-sm hover-shadow transition-all border-0 overflow-hidden position-relative">
+                <!-- ✅ Bookmark Icon -->
+                <div class="bookmark-btn" @click.stop="toggleBookmark(article.objectId)">
+                <i 
+                    :class="bookmarks.includes(article.objectId.toString()) 
+                    ? 'bi bi-bookmark-fill text-warning' 
+                    : 'bi bi-bookmark'"
+                    class="fs-3"
+                ></i>
+                </div>
+               <div
+                class="text-decoration-none text-dark"
+                @click="goToDetail(section._id, article)"
+                style="cursor: pointer;"
                 >
+
                   <img
                     :src="article.image || 'https://via.placeholder.com/400x250?text=No+Image'"
                     class="card-img-top"
@@ -211,7 +308,7 @@ watch(page, (current) => {
                       {{ article.description || 'No description' }}
                     </p>
                   </div>
-                </RouterLink>
+                </div>
                 <div v-if="decoded && decoded.isAdmin === false" class="card-footer bg-white border-top-0 pt-3">
                   <!-- INSTANT EDIT BUTTON -->
                   <button
@@ -289,4 +386,20 @@ watch(page, (current) => {
   border-radius: 12px;
   overflow: hidden;
 }
+.bookmark-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 20;
+  background: rgba(255,255,255,0.85);
+  padding: 6px 10px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.bookmark-btn:hover {
+  transform: scale(1.15);
+}
+
 </style>

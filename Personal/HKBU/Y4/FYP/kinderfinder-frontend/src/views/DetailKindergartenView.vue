@@ -1,26 +1,39 @@
 <script setup>
-import { ref, computed, onMounted, watch, reactive } from 'vue'
-import { nextTick } from 'vue'
+import { ref, computed, onMounted, watch, reactive, onBeforeMount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { jwtDecode } from 'jwt-decode'
 import EmojiPicker from 'vue3-emoji-picker'
 import 'vue3-emoji-picker/css'
 import 'bootstrap/dist/js/bootstrap.bundle.min.js'
+import { useKindergartenDetailStore } from '@/store/kindergartenDetail'
 
-// ==================== ROUTE & CORE ====================
+const store = useKindergartenDetailStore()
+
+console.log('📦 Pinia passedData on mount:', store.passedData ? 'YES, object with name: ' + store.passedData.ENGLISH_NAME : 'NULL')
+console.log('📦 Pinia passedBookmarkStatus:', store.passedBookmarkStatus)
+
 const route = useRoute()
 const router = useRouter()
-const showReportModal = ref(false)
-const comments = computed({
-  get: () => kindergarten.comments,
-  set: (val) => { kindergarten.comments = val }
-})
+const loading = ref(true)
+const activeTab = ref('Information')
 
-// Support both :id and :kindergartenId in URL
+
 const kindergartenId = computed(() => 
   route.params.kindergartenId || route.params.id || route.params._id
 )
 
+const comments = computed(() => {
+  const arr = kindergarten.comments
+  return Array.isArray(arr) ? arr : []
+})
+
+const token = localStorage.getItem('token')
+const decoded = token ? jwtDecode(token) : null
+const userId = decoded?._id
+
+const isBookmarked = ref(false)
+
+// Reactive kindergarten object
 const kindergarten = reactive({
   _id: '',
   CATEGORY: '',
@@ -75,24 +88,174 @@ const kindergarten = reactive({
   Resrouces: 0,
   Convenient: 0,
   Total: 0,
-
-  // THIS IS THE MOST IMPORTANT PART — always reactive!
-  comments: [], 
+  comments: [], // reactive array
 })
-const loading = ref(true)
-const activeTab = ref('Information')
 
-// ==================== AUTH (safe) ====================
-const token = localStorage.getItem('token')
-let decoded = null
-if (token) {
+const fromStore = ref(false)
+
+// Watch for persisted data becoming available
+watch(
+  () => store.passedData,
+  (newData) => {
+    if (newData && !fromStore.value) {
+      console.log('✅ Pinia store data restored — loading from store')
+      loadFromStore(newData)
+    }
+  },
+  { immediate: true }
+)
+
+// Main load function
+async function loadKindergarten() {
+  loading.value = true
+  console.log('🔄 Starting loadKindergarten()')
+
+  // If we already loaded from store, skip
+  if (fromStore.value) {
+    loading.value = false
+    return
+  }
+
+  // Otherwise, fetch from backend
+  console.log('🌐 Fetching kindergarten data from BACKEND API...')
   try {
-    decoded = jwtDecode(token)
+    const res = await fetch(`/api/kindergartens/detail/${kindergartenId.value}`)
+    if (!res.ok) throw new Error('Not found')
+    const data = await res.json()
+    console.log('✅ Kindergarten data fetched from BACKEND')
+
+    assignData(data)
+
+    // Bookmark fallback
+    await loadBookmarkFromBackend()
+
   } catch (err) {
-    console.warn('Invalid or expired token')
-    localStorage.removeItem('token')
+    console.error('Error:', err)
+    alert('Kindergarten not found')
+    router.push('/kindergartens')
+  } finally {
+    loading.value = false
+    console.log('🏁 Completed. Source: Backend')
   }
 }
+
+// Separate function to load from store
+function loadFromStore(kg) {
+  fromStore.value = true
+  console.log('✅ Kindergarten data from PINIA STORE (instant!)')
+
+  assignData(kg)
+
+  if (store.passedBookmarkStatus !== null) {
+    isBookmarked.value = store.passedBookmarkStatus
+    console.log('✅ Bookmark status from PINIA STORE:', isBookmarked.value ? 'BOOKMARKED' : 'NOT bookmarked')
+  }
+
+  store.clearPassedData()
+  console.log('🧹 Cleared Pinia store data')
+
+  loading.value = false
+  console.log('🏁 Completed. Source: PINIA STORE')
+}
+
+// Shared assign logic
+function assignData(data) {
+  for (const key in data) {
+    if (key !== 'comments' && kindergarten.hasOwnProperty(key)) {
+      kindergarten[key] = data[key]
+    }
+  }
+  kindergarten.comments.splice(0, kindergarten.comments.length, ...(data.comments || []))
+  console.log('📌 Kindergarten _id:', kindergarten._id)
+}
+
+// Backend bookmark fallback
+async function loadBookmarkFromBackend() {
+  if (!userId || !kindergarten._id) return
+
+  console.log('🔄 Fetching bookmark from backend...')
+  try {
+    const res = await fetch(`/api/users/${userId}`)
+    if (res.ok) {
+      const user = await res.json()
+      const ids = (user.kindergartensBookmark || [])
+        .map(item => item?.id?.toString())
+        .filter(Boolean)
+      const matched = ids.includes(kindergarten._id.toString())
+      isBookmarked.value = matched
+      console.log('✅ Bookmark from BACKEND:', matched ? 'BOOKMARKED' : 'NOT')
+    }
+  } catch (e) {
+    console.warn('Failed to fetch bookmark:', e)
+  }
+}
+const toggleBookmark = async () => {
+  if (!userId) {
+    alert('Please log in to bookmark this kindergarten')
+    return
+  }
+
+  if (!kindergarten._id) {
+    console.error('Kindergarten _id is missing')
+    return
+  }
+
+  const idStr = kindergarten._id.toString()
+  const previous = isBookmarked.value
+
+  // Optimistic UI update
+  isBookmarked.value = !previous
+
+  try {
+    const res = await fetch(`/api/users/${userId}/bookmark`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kindergartenId: kindergarten._id,
+        ENGLISH_NAME: kindergarten.ENGLISH_NAME || null,
+        中文名稱: kindergarten['中文名稱'] || null,
+        WEBSITE: kindergarten.WEBSITE || null,
+        openday: kindergarten.openday || null,
+        Application_Deadline: kindergarten.Application_Deadline || null,
+        Interview_Date: kindergarten.Interview_Date || null,
+        Results_Announcement: kindergarten.Results_Announcement || null
+      })
+    })
+
+    if (!res.ok) {
+      const errorText = await res.text()
+      throw new Error(errorText || 'Failed to update bookmark')
+    }
+
+    const data = await res.json()
+
+    // Sync bookmark status from server response
+    const updatedIds = (data.kindergartensBookmark || [])
+      .map(item => item?.id?.toString())
+      .filter(Boolean)
+
+    isBookmarked.value = updatedIds.includes(idStr)
+
+  } catch (err) {
+    console.error('Bookmark toggle failed:', err)
+    isBookmarked.value = previous  // rollback
+    alert('Failed to save bookmark. Please try again.')
+  }
+}
+// Lifecycle
+onMounted(() => {
+  // Give persistence a moment, then fallback to backend if no data
+  setTimeout(() => {
+    if (!fromStore.value) {
+      loadKindergarten()
+    }
+  }, 100)
+})
+
+watch(kindergartenId, () => {
+  fromStore.value = false
+  loadKindergarten()
+})
 
 // ==================== COMMENTS & RATINGS ====================
 const newComment = ref('')
@@ -322,48 +485,6 @@ function reportComment(c) {
   showReportModal.value = true
 }
 
-
-
-// ==================== LOAD KINDERGARTEN DATA (THE KEY FIX) ====================
-async function loadKindergarten() {
-  loading.value = true
-
-  try {
-    let data
-    if (route.state?.kindergarten) {
-      data = route.state.kindergarten
-    } else {
-      const res = await fetch(`/api/kindergartens/detail/${kindergartenId.value}`)
-      if (!res.ok) throw new Error()
-      data = await res.json()
-    }
-
-    // THIS IS THE ONLY WAY THAT WORKS 100%
-    // NEVER use Object.assign() on a reactive object with arrays
-    for (const key in data) {
-      if (key !== 'comments') {
-        kindergarten[key] = data[key]
-      }
-    }
-
-    // THIS preserves full reactivity
-    kindergarten.comments.splice(0, kindergarten.comments.length, ...(data.comments || []))
-
-  } catch (err) {
-    alert('Not found')
-    router.push('/kindergartens')
-  } finally {
-    loading.value = false
-  }
-}
-
-// Load on mount + when ID changes
-onMounted(loadKindergarten)
-watch(kindergartenId, loadKindergarten)
-
-
-
-
 async function submitReport() {
   if (!reportReason.value) return alert('Select a reason')
 
@@ -585,9 +706,33 @@ const importantDates = computed(() => {
   <div v-else class="container py-5">
 
     <!-- ========================== HEADER ========================== -->
-    <div class="row align-items-center mb-5 g-4">
+    <div class="row align-items-center mb-5 g-4 position-relative">
       <div class="col-lg-8">
-        <h1 class="display-5 fw-bold mb-2">{{ kindergarten.ENGLISH_NAME }}</h1>
+        <!-- English Name - clickable if website exists -->
+        <h1 class="display-5 fw-bold mb-1">
+        <a 
+            v-if="kindergarten.WEBSITE" 
+            :href="kindergarten.WEBSITE" 
+            :placeholder="kindergarten.WEBSITE" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            class="text-decoration-none text-dark"
+        >
+            {{ kindergarten.ENGLISH_NAME || 'Unknown Kindergarten' }}
+        </a>
+        <span v-else>
+            {{ kindergarten.ENGLISH_NAME || 'Unknown Kindergarten' }}
+        </span>
+        </h1>
+        <!-- Bookmark Icon -->
+        <div class="bookmark-btn" @click.stop="toggleBookmark">
+        <i 
+            :class="isBookmarked 
+                    ? 'bi bi-bookmark-fill text-warning' 
+                    : 'bi bi-bookmark'"
+            class="fs-3"
+        ></i>
+        </div>
         <h4 class="text-muted mb-3">{{ kindergarten.中文名稱 }}</h4>
         <p class="lead mb-0">
           <i class="fas fa-map-marker-alt text-danger me-2"></i>
@@ -632,13 +777,31 @@ const importantDates = computed(() => {
 
       </div>
       <div class="col-lg-4 text-center">
+        <!-- If there is a website, wrap in <a> tag -->
+        <a 
+            v-if="kindergarten.WEBSITE" 
+            :href="kindergarten.WEBSITE" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            class="d-block"
+        >
+            <img
+            :src="kindergarten.photo || 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSWDMW6ntfY590jhxvrUeuObzhRb8t7LaRkvQ&s'"
+            class="img-fluid rounded-4 shadow-lg"
+            style="height: 300px; object-fit: cover;"
+            alt="School photo"
+            />
+        </a>
+
+        <!-- If no website, just show the image -->
         <img
-          :src="kindergarten.photo || 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSWDMW6ntfY590jhxvrUeuObzhRb8t7LaRkvQ&s'"
-          class="img-fluid rounded-4 shadow-lg"
-          style="height: 300px; object-fit: cover;"
-          alt="School photo"
+            v-else
+            :src="kindergarten.photo || 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSWDMW6ntfY590jhxvrUeuObzhRb8t7LaRkvQ&s'"
+            class="img-fluid rounded-4 shadow-lg"
+            style="height: 300px; object-fit: cover;"
+            alt="School photo"
         />
-      </div>
+        </div>
     </div>
 
     <!-- ========================== TABS ========================== -->
@@ -762,6 +925,19 @@ const importantDates = computed(() => {
                 </p>
                 <p v-if="kindergarten.EMAIL">
                   <i class="fas fa-envelope text-primary me-2"></i> {{ kindergarten.EMAIL }}
+                </p>
+                <!-- Website line — only shown if WEBSITE exists -->
+                <p v-if="kindergarten.WEBSITE" class="mb-2">
+                <i class="fas fa-globe text-info me-2"></i>
+                <a 
+                    :href="kindergarten.WEBSITE" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    class="text-decoration-none text"
+                >
+                    {{ kindergarten.WEBSITE.replace(/^https?:\/\//, '') }}  <!-- Removes http:// or https:// for cleaner display -->
+                    <i class="fas fa-external-link-alt ms-1 small"></i>
+                </a>
                 </p>
               </div>
             </div>
@@ -1126,5 +1302,22 @@ const importantDates = computed(() => {
 .vue-modal-header .btn-close {
   margin-left: auto;
 }
+.bookmark-btn {
+  position: absolute;
+  top: 10px;
+  right: 20px;
+  z-index: 9999;
+  background: rgba(255,255,255,0.95);
+  padding: 10px 14px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.bookmark-btn:hover {
+  transform: scale(1.15);
+}
+
 
 </style>

@@ -57,7 +57,6 @@ const setFontSize = (size) => {
   document.documentElement.setAttribute('data-font-size', size)
 }
 
-
 </script>
 
 <style>
@@ -123,6 +122,13 @@ const setFontSize = (size) => {
             <li class="nav-item"><a class="nav-link" href="/discussions">{{ $t('users') }}</a></li>
           </ul>
           <div class="d-flex align-items-center">
+            <!-- Calendar Button -->
+            <template v-if="isLoggedIn">
+              <a class="btn nav-control-btn ms-2" href="/calendar" title="Calendar">
+                <i class="bi bi-calendar-event" style="font-size:1.3rem;"></i>
+              </a>
+            </template>
+
             <!-- Language Dropdown -->
             <div class="dropdown ms-2">
               <button 

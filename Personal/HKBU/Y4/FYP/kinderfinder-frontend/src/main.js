@@ -4,6 +4,11 @@ import router from './router';
 import store from './store';
 import './assets/styles/main.css';
 import i18n from './i18n';
+import { createPinia } from 'pinia'
+import piniaPluginPersistedstate from 'pinia-plugin-persistedstate'
+
+const pinia = createPinia()
+pinia.use(piniaPluginPersistedstate)
 
 // Bootstrap CSS (keep only one)
 import 'bootstrap/dist/css/bootstrap.min.css';
@@ -25,6 +30,7 @@ import { faSearch, faSort } from '@fortawesome/free-solid-svg-icons';
 library.add(faSearch, faSort);
 
 createApp(App)
+  .use(pinia) 
   .use(router)
   .use(store)
   .use(i18n)

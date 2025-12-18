@@ -1,8 +1,14 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { jwtDecode } from "jwt-decode"
+import { useKindergartenDetailStore } from '@/store/kindergartenDetail'
 
 const router = useRouter()
+
+const token = localStorage.getItem('token')
+const decoded = token ? jwtDecode(token) : null
+const userId = decoded?._id;
 
 const kindergartens = ref([])
 const loading = ref(true)
@@ -12,7 +18,6 @@ const perPage = ref(6)
 const search = ref('')
 const filtersVisible = ref(false)
 
-// All your original filters — untouched!
 const region = ref('')
 const district = ref('')
 const section = ref('')
@@ -23,15 +28,103 @@ const atmosphere = ref([])
 const teachingMethods = ref([])
 const N_Class = ref("")  
 
+const bookmarks = ref([]);  // Will store kindergarten _id as strings
+
+// ✅ Load from JWT (instant)
+if (decoded && Array.isArray(decoded.kindergartensBookmark)) {
+  bookmarks.value = decoded.kindergartensBookmark
+    .map(k => k.id?.toString())
+    .filter(Boolean)
+
+  console.log('Kindergarten bookmarks instantly loaded from JWT:', bookmarks.value)
+}
+
+// ✅ Load bookmarks AND then fetch kindergartens
+onMounted(async () => {
+  if (!userId) {
+    await fetchData()
+    loading.value = false
+    return
+  }
+
+  try {
+    const res = await fetch(`/api/users/${userId}`)
+    if (!res.ok) throw new Error('Failed to fetch user')
+
+    const data = await res.json()
+
+    // ✅ Extract inner id from object
+    const serverBookmarks = (data.kindergartensBookmark || [])
+      .map(k => k.id?.toString())
+      .filter(Boolean)
+
+    bookmarks.value = serverBookmarks
+    console.log("Kindergarten bookmarks synced from server:", bookmarks.value)
+
+  } catch (err) {
+    console.error("Failed to load kindergarten bookmarks:", err)
+  }
+
+  await fetchData()
+  loading.value = false
+})
+
+// ✅ Optimistic toggle bookmark
+const toggleBookmark = async (kg) => {
+  const idStr = kg._id.toString();
+
+  // Save previous state for rollback
+  const previous = [...bookmarks.value];
+
+  // ✅ 1. Instant UI update
+  if (bookmarks.value.includes(idStr)) {
+    bookmarks.value = bookmarks.value.filter(id => id !== idStr);
+  } else {
+    bookmarks.value.push(idStr);
+  }
+
+  try {
+    // ✅ 2. Send full kindergarten data to backend
+    const res = await fetch(`/api/users/${userId}/bookmark`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kindergartenId: kg._id,
+        ENGLISH_NAME: kg.ENGLISH_NAME || null,
+        中文名稱: kg.中文名稱 || null,
+        WEBSITE: kg.WEBSITE || null,
+        openday: kg.openday || null,
+        Application_Deadline: kg.Application_Deadline || null,
+        Interview_Date: kg.Interview_Date || null,
+        Results_Announcement: kg.Results_Announcement || null
+      })
+    });
+
+    if (!res.ok) throw new Error("Backend update failed");
+
+    const data = await res.json();
+
+    // ✅ 3. Convert backend objects → string IDs
+    bookmarks.value = (data.kindergartensBookmark || [])
+      .map(k => k.id?.toString())
+      .filter(Boolean);
+
+  } catch (err) {
+    console.error("Bookmark toggle failed:", err);
+
+    // ✅ 4. Rollback UI if backend fails
+    bookmarks.value = previous;
+  }
+};
 
 function toggleFilters() {
   filtersVisible.value = !filtersVisible.value
 }
 
-// Unified fetch function (used by search, filters, pagination)
+// Unified fetch function
 async function fetchData() {
   loading.value = true
-  // Map frontend display values → values your backend understands
+
   let tuitionParam = ''
   if (tuition.value === 'Free') tuitionParam = 'Free'
   else if (tuition.value === '<=10000') tuitionParam = '<=10000'
@@ -60,6 +153,8 @@ async function fetchData() {
       const data = await res.json()
       kindergartens.value = data.kindergartens || []
       totalPages.value = data.totalPages || 1
+    } else {
+      kindergartens.value = []
     }
   } catch (err) {
     console.error(err)
@@ -79,13 +174,11 @@ watch(search, () => {
   }, 600)
 })
 
-// Watch page change
 watch(page, () => {
   fetchData()
   window.scrollTo({ top: 0, behavior: 'smooth' })
 })
 
-// Apply filters instantly when changed
 watch([region, district, section, gender, religion, tuition, N_Class, atmosphere, teachingMethods], () => {
   page.value = 1
   fetchData()
@@ -101,18 +194,17 @@ function clearFilters() {
 }
 
 function goToDetail(kg) {
-  console.log("Navigating to detail:", kg._id)
+  const store = useKindergartenDetailStore()
+
+  const isBookmarked = bookmarks.value.includes(kg._id.toString())
+
+  store.setPassedData(kg, isBookmarked)
 
   router.push({
-    name: 'Detail kindergarten',        // make sure this matches your route name
-    params: { kindergartenId: kg._id }, // <-- this is required!
-    state: { kindergarten: kg }         // <-- optional, only for instant load
+    name: 'Detail kindergarten',
+    params: { kindergartenId: kg._id }
   })
 }
-
-onMounted(() => {
-  fetchData()
-})
 </script>
 
 <template>
@@ -285,8 +377,17 @@ onMounted(() => {
       <div
         v-for="kg in kindergartens"
         :key="kg._id"
-        class="kindergarten-card mb-4"
+        class="kindergarten-card mb-4 position-relative"
       >
+      <div class="bookmark-btn" @click.stop="toggleBookmark(kg)">
+        <i 
+            :class="bookmarks.includes(kg._id.toString()) 
+                    ? 'bi bi-bookmark-fill text-warning' 
+                    : 'bi bi-bookmark'"
+            class="fs-3"
+        ></i>
+        </div>
+
         <div class="card shadow-lg border-0 rounded-4 overflow-hidden hover-lift" @click="goToDetail(kg)" style="cursor: pointer;">
           <div class="row g-0">
             <div class="col-md-4">
@@ -371,4 +472,20 @@ onMounted(() => {
     padding: 0 !important;
   }
 }
+.bookmark-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
+  cursor: pointer;
+  background: rgba(255,255,255,0.8);
+  padding: 6px 10px;
+  border-radius: 50%;
+  transition: 0.2s ease;
+}
+
+.bookmark-btn:hover {
+  transform: scale(1.1);
+}
+
 </style>

@@ -1,17 +1,89 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { jwtDecode } from "jwt-decode"
+import { useDiscussionDetailStore } from '@/store/discussionDetail'
 
 const router = useRouter()
+
+const token = localStorage.getItem('token')
+const decoded = token ? jwtDecode(token) : null
+const userId = decoded?._id
 
 // Data from backend
 const discussions = ref([])
 const currentPage = ref(1)
 const totalPages = ref(1)
 const search = ref('')
-const isLoading = ref(true)  // Will be true during initial load AND page changes
+const isLoading = ref(true)
 
-// Load discussions from backend with pagination + search
+const bookmarks = ref([])
+
+// Pinia store
+const store = useDiscussionDetailStore()
+
+if (decoded && Array.isArray(decoded.discussionsBookmark)) {
+  bookmarks.value = decoded.discussionsBookmark
+    .map(id => typeof id === 'string' ? id : id.toString())
+  console.log('Bookmarks instantly loaded from JWT:', bookmarks.value)
+}
+
+// Load user's bookmarks once on mount
+onMounted(async () => {
+  if (!userId) {
+    console.log('No logged-in user — skipping bookmark load')
+    return
+  }
+
+  try {
+    const res = await fetch(`/api/users/${userId}`)
+    if (!res.ok) throw new Error('Failed to fetch user data')
+
+    const data = await res.json()
+
+    // This overwrites the JWT version with the latest from server
+    const serverBookmarks = (data.discussionsBookmark || [])
+      .map(id => typeof id === 'string' ? id : id.toString())
+
+    bookmarks.value = serverBookmarks
+    console.log('Bookmarks synced from server:', bookmarks.value)
+
+  } catch (err) {
+    console.error('Failed to load discussion bookmarks from server:', err)
+    // If server fails, keep the JWT version (better than empty)
+  }
+})
+
+// Optimistic toggle with backend sync
+const toggleBookmark = async (discussionId) => {
+  const idStr = discussionId.toString()
+  const previous = [...bookmarks.value]
+
+  // Instant UI update
+  if (bookmarks.value.includes(idStr)) {
+    bookmarks.value = bookmarks.value.filter(id => id !== idStr)
+  } else {
+    bookmarks.value.push(idStr)
+  }
+
+  try {
+    const res = await fetch(`/api/users/${userId}/bookmark`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ discussionId })
+    })
+
+    if (!res.ok) throw new Error("Backend failed")
+
+    const data = await res.json()
+    bookmarks.value = data.discussionsBookmark.map(id => id.toString())
+  } catch (err) {
+    console.error("Bookmark toggle failed:", err)
+    bookmarks.value = previous // rollback
+  }
+}
+
+// Load discussions with pagination + search
 async function loadDiscussions() {
   isLoading.value = true
 
@@ -55,11 +127,16 @@ function goToPage(page) {
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
-// Detail & Add
+// Navigate to detail with instant data via Pinia
 function goToDetail(discussion) {
+  const isBookmarked = bookmarks.value.includes(discussion._id.toString())
+
+  // Pass data instantly via store
+  store.setPassedData(discussion, isBookmarked)
+
   router.push({
-    path: `/discussion/detail/${discussion._id}`,
-    state: { discussion }
+    name: 'Detaildiscussions',
+    params: { discussionId: discussion._id }
   })
 }
 
@@ -144,10 +221,20 @@ onMounted(() => {
           class="col"
         >
           <div
-            class="card shadow-sm hover-shadow transition-all border-0 h-100"
+            class="card shadow-sm hover-shadow transition-all border-0 h-100 position-relative"
             style="border-radius: 20px; cursor: pointer;"
             @click="goToDetail(d)"
-          >
+            >
+            <!-- Bookmark Icon -->
+            <div class="bookmark-btn" @click.stop="toggleBookmark(d._id)">
+            <i 
+                :class="bookmarks.includes(d._id) 
+                ? 'fa-solid fa-bookmark text-warning' 
+                : 'fa-regular fa-bookmark'"
+                class="fs-3"
+            ></i>
+            </div>
+
             <div class="card-body d-flex align-items-center p-4">
               <div class="rounded me-4 bg-light d-flex align-items-center justify-content-center"
                    style="width: 90px; height: 90px; font-size: 2.5rem;">
@@ -178,8 +265,8 @@ onMounted(() => {
                   }) }}
                 </small>
               </div>
-              <div class="text-end">
-                <i class="fas fa-chevron-right text-primary fs-3"></i>
+              <div class="text-end" style="margin-top: 5%;">
+                <i class="fas fa-chevron-right text-primary fs-3" ></i>
               </div>
             </div>
           </div>
@@ -259,4 +346,20 @@ onMounted(() => {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+.bookmark-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 20;
+  background: rgba(255,255,255,0.9);
+  padding: 6px 10px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.bookmark-btn:hover {
+  transform: scale(1.15);
+}
+
 </style>

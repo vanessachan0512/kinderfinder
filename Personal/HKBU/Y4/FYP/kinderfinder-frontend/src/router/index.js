@@ -23,6 +23,11 @@ const routes = [
       component: () => import('../views/ProfileView.vue')
     },
     {
+      path: '/calendar',
+      name: 'Calendar',
+      component: () => import('../views/CalendarView.vue')
+    },
+    {
       path: '/verify/:email',
       name: 'Verify',
       component: () => import('../views/VerifyView.vue'),
@@ -51,8 +56,9 @@ const routes = [
     },
     {
       path: '/resources/detail/:sectionID/:articleId',
-      name: 'Detailed Resources',
-      component: () => import('../views/DetailResourcesView.vue')
+      name: 'DetailResources',
+      component: () => import('../views/DetailResourcesView.vue'),
+      props: true
     },
     {
       path: '/resource/add',
@@ -76,8 +82,9 @@ const routes = [
     },
     {
       path: '/discussion/detail/:discussionId',
-      name: 'Detail discussions',
-      component: () => import('../views/DetailDiscussionView.vue')
+      name: 'Detaildiscussions',
+      component: () => import('../views/DetailDiscussionView.vue'),
+      props: true
     },
     {
       path: '/kindergartens',

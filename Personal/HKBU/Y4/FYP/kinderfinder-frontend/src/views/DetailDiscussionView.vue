@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, nextTick, watch } from 'vue'
+import { ref, onMounted, nextTick, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { jwtDecode } from "jwt-decode"
 import EmojiPicker from 'vue3-emoji-picker'
@@ -8,16 +8,20 @@ import { Modal } from 'bootstrap'
 import { library } from '@fortawesome/fontawesome-svg-core'
 import { faCircleNotch, faComments } from '@fortawesome/free-solid-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+import { useDiscussionDetailStore } from '@/store/discussionDetail'
+
 library.add(faCircleNotch, faComments)
 
 const route = useRoute()
 const router = useRouter()
-const discussionId = route.params.id || route.params.discussionId
+const discussionId = route.params.discussionId
+
 const discussion = ref(null)
 const newMessage = ref('')
 
 const token = localStorage.getItem('token')
 const decoded = token ? jwtDecode(token) : null
+const userId = decoded?._id
 
 const hoveredComment = ref(null)
 const replyTarget = ref(null)
@@ -28,78 +32,95 @@ const reportTarget = ref(null)
 const reportReason = ref('')
 const reportDetails = ref('')
 
-// ——— INSTANT LOAD ———
-function loadFromState() {
-  const state = history.state || {}
+// Bookmark state
+const isBookmarked = ref(false)
 
-  // Only use history.state if NOT a reload
-  if (performance.navigation.type !== performance.navigation.TYPE_RELOAD && state.discussion) {
-    discussion.value = state.discussion
-    return true
-  }
+// Pinia store
+const store = useDiscussionDetailStore()
 
-  const saved = sessionStorage.getItem(`discussion_${discussionId}`)
-  if (saved && performance.navigation.type !== performance.navigation.TYPE_RELOAD) {
-    try {
-      const data = JSON.parse(saved)
-      discussion.value = data.discussion
-      return true
-    } catch (e) {
-      sessionStorage.removeItem(`discussion_${discussionId}`)
-    }
-  }
+// === Instant load from Pinia store ===
+const loadedFromStore = ref(false)
 
-  return false
+if (store.passedDiscussion) {
+  discussion.value = store.passedDiscussion
+  loadedFromStore.value = true
 }
 
+if (store.passedIsBookmarked !== null) {
+  isBookmarked.value = store.passedIsBookmarked
+  console.log('Initial bookmark from store:', isBookmarked.value)
+  loadedFromStore.value = true
+}
 
-async function loadFromBackend() {
+// Clear store when leaving the page (prevents stale data on direct access)
+onUnmounted(() => {
+  store.clearPassedData()
+})
+
+
+// === Fallback: Load from backend if not from store ===
+const loadDiscussionAndBookmark = async () => {
   if (!discussionId) return
-  try {
-    const res = await fetch(`/api/discussions/${discussionId}`)
-    if (!res.ok) throw new Error('Not found')
-    const freshData = await res.json()
 
-    // PRESERVE optimistic messages during reload
-    if (discussion.value?.comments?.length) {
-      const optimistic = discussion.value.comments.filter(c => c.isOptimistic)
-      if (optimistic.length > 0) {
-        const existingIds = new Set(freshData.comments.map(c => c._id))
-        const merged = [...optimistic.filter(c => !existingIds.has(c._id)), ...freshData.comments]
-        freshData.comments = merged
-      }
+  try {
+    // Load discussion only if not from store
+    if (!discussion.value) {
+      const res = await fetch(`/api/discussions/${discussionId}`)
+      if (!res.ok) throw new Error('Discussion not found')
+      const data = await res.json()
+      discussion.value = data
     }
 
-    discussion.value = freshData
-
-    // Save fresh data + keep optimistic ones
-    sessionStorage.setItem(`discussion_${discussionId}`, JSON.stringify({
-      discussion: freshData,
-      timestamp: Date.now()
-    }))
-    history.replaceState({ ...history.state, discussion: freshData }, '', location.href)
+    // Load bookmark only if not from store and user is logged in
+    if (!loadedFromStore.value && userId) {
+      const userRes = await fetch(`/api/users/${userId}`)
+      if (userRes.ok) {
+        const userData = await userRes.json()
+        const bookmarkIds = (userData.discussionsBookmark || []).map(id => id.toString())
+        isBookmarked.value = bookmarkIds.includes(discussionId.toString())
+        console.log('Bookmark loaded from backend:', isBookmarked.value)
+      }
+    }
   } catch (err) {
-    console.error('Load failed:', err)
+    console.error('Failed to load discussion or bookmark:', err)
+    // Optional: show error state
   }
 }
 
 onMounted(() => {
-  const isReload = performance.navigation.type === performance.navigation.TYPE_RELOAD
+  loadDiscussionAndBookmark()
 
-  if (isReload) {
-    loadFromBackend()
-  } else {
-    if (!loadFromState()) loadFromBackend()
+  nextTick(() => {
+    document.querySelector('input')?.focus()
+  })
+})
+
+// === Optimistic Bookmark Toggle ===
+const toggleBookmark = async () => {
+  if (!userId || !discussionId) return
+
+  const previous = isBookmarked.value
+
+  // Instant UI update
+  isBookmarked.value = !isBookmarked.value
+
+  try {
+    const res = await fetch(`/api/users/${userId}/bookmark`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ discussionId })
+    })
+
+    if (!res.ok) throw new Error("Failed to update bookmark")
+
+    const data = await res.json()
+    const bookmarkIds = data.discussionsBookmark.map(id => id.toString())
+    isBookmarked.value = bookmarkIds.includes(discussionId.toString())
+  } catch (err) {
+    console.error("Bookmark toggle failed:", err)
+    isBookmarked.value = previous // rollback
   }
-
-  nextTick(() => document.querySelector('input')?.focus())
-})
-
-
-watch(() => route.params.id, () => {
-  discussion.value = null
-  if (!loadFromState()) loadFromBackend()
-})
+}
 
 // ——— FINAL OPTIMISTIC SEND (NEVER LOSES MESSAGES) ———
 async function sendMessage() {
@@ -220,6 +241,7 @@ async function submitReport() {
 </script>
 
 <template>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
   <!-- Your beautiful template stays the same -->
   <div class="min-vh-100" style="background: linear-gradient(135deg, #fff1eb 0%, #ace0f9 100%); position: relative; overflow: hidden;">
     <!-- Decorations -->
@@ -238,7 +260,7 @@ async function submitReport() {
       <div class="row justify-content-center">
         <div class="col-lg-9 col-xl-8">
           <!-- Header -->
-          <div class="d-flex justify-content-between align-items-start mb-4 bg-white rounded-4 shadow-sm p-4">
+          <div class="d-flex justify-content-between align-items-start mb-4 bg-white rounded-4 shadow-sm p-4 position-relative">
             <div>
               <h2 class="fw-bold text-primary mb-2">{{ discussion?.title || 'Loading...' }}</h2>
               <p class="text-muted mb-2">Description: {{ discussion?.description }}</p>
@@ -247,6 +269,15 @@ async function submitReport() {
               </div>
             </div>
             <button @click="router.back()" class="btn btn-outline-primary">Back</button>
+            <!-- Bookmark Icon -->
+            <div class="bookmark-btn" @click.stop="toggleBookmark(discussion?._id)">
+            <i 
+            :class="isBookmarked 
+                ? 'bi bi-bookmark-fill text-warning' 
+                : 'bi bi-bookmark text-muted'"
+            class="fs-2"
+            ></i>
+            </div>
           </div>
 
           <!-- Chat -->
@@ -384,4 +415,18 @@ async function submitReport() {
 .delay-4 { animation-delay: 4s; }
 .delay-5 { animation-delay: 5s; }
 @keyframes float { 0%,100%{transform:translateY(0) rotate(0deg)} 50%{transform:translateY(-30px) rotate(5deg)} }
+.btn-outline-primary{
+  position: absolute;
+  top: 70px;
+  right: 20px; /* leaves space for Back button */
+  z-index: 20;
+  padding: 8px 12px;
+  margin-top: 4px;
+  cursor: pointer;
+}
+
+.bookmark-btn:hover {
+  transform: scale(1.15);
+}
+
 </style>

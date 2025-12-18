@@ -259,9 +259,6 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- Calendar -->
-    <h3 style="margin-left: 5%">Important Dates:</h3>
-    <div id="calendar"></div>
   </div>
 </template>
 
@@ -294,8 +291,6 @@ onMounted(async () => {
   line-height: 1.4;
   color: #fff;
 }
-
-
 
 /* Leave list view untouched */
 .fc-list-event {
