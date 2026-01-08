@@ -1,8 +1,28 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { jwtDecode } from "jwt-decode"
 import { useKindergartenDetailStore } from '@/store/kindergartenDetail'
+import { useCompareStore } from '@/store/useCompareStore'
+import { useI18n } from 'vue-i18n'; // ← ADD THIS
+
+const { t } = useI18n(); // ← ADD THIS LINE
+
+
+const translateDbValue = (value) => {
+  if (!value) return '-'
+  const key = typeof value === 'string' ? value.toUpperCase().trim() : value
+  return t(key, key) // fallback to original if no translation
+}
+
+const normalizeDistrict = (dbValue) => {
+  if (!dbValue) return ''
+  return dbValue
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '_')  // Replace spaces with underscores
+}
+
 
 const router = useRouter()
 
@@ -26,7 +46,15 @@ const religion = ref('')
 const tuition = ref('')
 const atmosphere = ref([])
 const teachingMethods = ref([])
-const N_Class = ref("")  
+const N_Class = ref("")
+const atmosphereInput = ref('')
+const activitiesInput = ref('')
+const teachingInput = ref('')
+const facilitiesInput = ref('')  
+
+const compareStore = useCompareStore()
+const compareCount = computed(() => compareStore.count)
+const compareItems = computed(() => compareStore.compareItems)
 
 const bookmarks = ref([]);  // Will store kindergarten _id as strings
 
@@ -39,34 +67,25 @@ if (decoded && Array.isArray(decoded.kindergartensBookmark)) {
   console.log('Kindergarten bookmarks instantly loaded from JWT:', bookmarks.value)
 }
 
-// ✅ Load bookmarks AND then fetch kindergartens
+const handleAddToCompare = (kg) => {
+  console.log('Button clicked for:', kg.ENGLISH_NAME, kg._id)
+  console.log('Current compareItems before:', compareStore.compareItems)
+
+  if (compareStore.isInCompare(kg._id)) {
+    // Already in compare → remove it
+    compareStore.removeFromCompare(kg._id)
+    console.log('Removed! New list:', compareStore.compareItems.map(i => i.ENGLISH_NAME))
+  } else {
+    // Not in compare → add it
+    compareStore.addToCompare(kg)
+    console.log('Added! New list:', compareStore.compareItems.map(i => i.ENGLISH_NAME))
+  }
+}
+
+
 onMounted(async () => {
-  if (!userId) {
-    await fetchData()
-    loading.value = false
-    return
-  }
-
-  try {
-    const res = await fetch(`/api/users/${userId}`)
-    if (!res.ok) throw new Error('Failed to fetch user')
-
-    const data = await res.json()
-
-    // ✅ Extract inner id from object
-    const serverBookmarks = (data.kindergartensBookmark || [])
-      .map(k => k.id?.toString())
-      .filter(Boolean)
-
-    bookmarks.value = serverBookmarks
-    console.log("Kindergarten bookmarks synced from server:", bookmarks.value)
-
-  } catch (err) {
-    console.error("Failed to load kindergarten bookmarks:", err)
-  }
-
-  await fetchData()
-  loading.value = false
+    console.log('onMounted running!');
+    await fetchData();
 })
 
 // ✅ Optimistic toggle bookmark
@@ -76,7 +95,7 @@ const toggleBookmark = async (kg) => {
   // Save previous state for rollback
   const previous = [...bookmarks.value];
 
-  // ✅ 1. Instant UI update
+  // 1. Instant optimistic UI update
   if (bookmarks.value.includes(idStr)) {
     bookmarks.value = bookmarks.value.filter(id => id !== idStr);
   } else {
@@ -84,7 +103,7 @@ const toggleBookmark = async (kg) => {
   }
 
   try {
-    // ✅ 2. Send full kindergarten data to backend
+    // 2. Send updated data to backend
     const res = await fetch(`/api/users/${userId}/bookmark`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -93,27 +112,36 @@ const toggleBookmark = async (kg) => {
         ENGLISH_NAME: kg.ENGLISH_NAME || null,
         中文名稱: kg.中文名稱 || null,
         WEBSITE: kg.WEBSITE || null,
-        openday: kg.openday || null,
-        Application_Deadline: kg.Application_Deadline || null,
-        Interview_Date: kg.Interview_Date || null,
-        Results_Announcement: kg.Results_Announcement || null
+
+        // Send the full events object (recommended)
+        events: {
+          openday: kg.events?.openday || null,
+          Application_Deadline: kg.events?.Application_Deadline || null,
+          Interview_Date: kg.events?.Interview_Date || null,
+          Results_Announcement: kg.events?.Results_Announcement || null
+        }
+
       })
     });
 
-    if (!res.ok) throw new Error("Backend update failed");
+    if (!res.ok) {
+      const errorText = await res.text();
+      throw new Error(`Backend update failed: ${errorText}`);
+    }
 
     const data = await res.json();
 
-    // ✅ 3. Convert backend objects → string IDs
+    // 3. Update local bookmarks from backend response
+    // Assuming backend returns kindergartensBookmark as array of { id, ...events }
     bookmarks.value = (data.kindergartensBookmark || [])
-      .map(k => k.id?.toString())
+      .map(bookmark => bookmark.id?.toString())
       .filter(Boolean);
 
   } catch (err) {
     console.error("Bookmark toggle failed:", err);
-
-    // ✅ 4. Rollback UI if backend fails
+    // 4. Rollback on failure
     bookmarks.value = previous;
+    alert("Failed to update bookmark. Changes reverted.");
   }
 };
 
@@ -123,6 +151,7 @@ function toggleFilters() {
 
 // Unified fetch function
 async function fetchData() {
+    console.log("Fetch called")
   loading.value = true
 
   let tuitionParam = ''
@@ -164,7 +193,7 @@ async function fetchData() {
   }
 }
 
-// Debounced search
+// Delay search fucntion until user stops typing
 let timeout
 watch(search, () => {
   clearTimeout(timeout)
@@ -176,6 +205,7 @@ watch(search, () => {
 
 watch(page, () => {
   fetchData()
+  // scroll to top on page change
   window.scrollTo({ top: 0, behavior: 'smooth' })
 })
 
@@ -205,19 +235,135 @@ function goToDetail(kg) {
     params: { kindergartenId: kg._id }
   })
 }
+
+const form = ref({
+  CATEGORY: "Kindergartens",
+  中文類別: "幼稚園",
+  ENGLISH_NAME: '',
+  中文名稱: '',
+  Region_English: 'New Territories',
+  Region_Chinese: '新界',
+  ENGLISH_ADDRESS: '',
+  中文地址: '',
+  LATITUDE: null,
+  LONGITUDE: null,
+  STUDENTS_GENDER: 'CO-ED',
+  SESSION_WHOLE_DAY: false,
+  SESSION_AM: false,
+  SESSION_PM: false,
+  DISTRICT: '',
+  FINANCE_TYPE: 'PRIVATE',
+  SCHOOL_LEVEL: 'KINDERGARTEN',
+  TELEPHONE: '',
+  FAX_NUMBER: '',
+  EMAIL: '',
+  WEBSITE: '',
+  RELIGION: '',
+  DESCRIPTION: '',
+  DESCRIPTION_ENGLISH: '',
+  Tuition_fee: '',
+  N_Class: false,
+  openday: '',
+  Application_Deadline: '',
+  Interview_Date: '',
+  Results_Announcement: '',
+  ATMOSPHERER_ENGLISH: [],
+  ACTIVITIES_ENGLISH: [],
+  TEACHING_METHOD_ENGLISH: [],
+  FACILITIES_ENGLISH: [],
+  Rank: null,
+  Envrionment: null,
+  Teacher: null,
+  Resrouces: null,
+  Convenient: null,
+  Total: null
+})
+
+const atmosphereOptions = [
+  { value: 'Lively', label: 'atmosphereOptions.Lively' },
+  { value: 'Joyful', label: 'atmosphereOptions.Joyful' },
+  { value: 'Serious', label: 'atmosphereOptions.Serious' },
+  { value: 'Relaxed', label: 'atmosphereOptions.Relaxed' },
+  { value: 'Interactive', label: 'atmosphereOptions.Interactive' },
+  { value: 'Tense', label: 'atmosphereOptions.Tense' },
+  { value: 'Dull', label: 'atmosphereOptions.Dull' },
+  { value: 'Creative', label: 'atmosphereOptions.Creative' },
+  { value: 'Supportive', label: 'atmosphereOptions.Supportive' },
+  { value: 'Exploratory', label: 'atmosphereOptions.Exploratory' }
+]
+
+const teachingMethodOptions = [
+  { value: 'Traditional Teaching', label: 'teachingMethodOptions.Traditional Teaching' },
+  { value: 'Constructivism', label: 'teachingMethodOptions.Constructivism' },
+  { value: 'Cooperative Learning', label: 'teachingMethodOptions.Cooperative Learning' },
+  { value: 'Problem-Based Learning', label: 'teachingMethodOptions.Problem-Based Learning' },
+  { value: 'Inquiry-Based Learning', label: 'teachingMethodOptions.Inquiry-Based Learning' },
+  { value: 'Flipped Classroom', label: 'teachingMethodOptions.Flipped Classroom' },
+  { value: 'Multiple Intelligences Theory', label: 'teachingMethodOptions.Multiple Intelligences Theory' },
+  { value: 'Lecture Mode', label: 'teachingMethodOptions.Lecture Mode' },
+  { value: 'Discussion Mode', label: 'teachingMethodOptions.Discussion Mode' },
+  { value: 'Practical Mode', label: 'teachingMethodOptions.Practical Mode' },
+  { value: 'Case Study', label: 'teachingMethodOptions.Case Study' },
+  { value: 'Role Play', label: 'teachingMethodOptions.Role Play' },
+  { value: 'Gamified Learning', label: 'teachingMethodOptions.Gamified Learning' },
+  { value: 'Individualized Learning', label: 'teachingMethodOptions.Individualized Learning' }
+]
+
+
+// const submitKindergarten = async () => {
+//   // Convert comma-separated strings to arrays
+//   form.value.ATMOSPHERER_ENGLISH = atmosphereInput.value.split(',').map(s => s.trim()).filter(s => s)
+//   form.value.ACTIVITIES_ENGLISH = activitiesInput.value.split(',').map(s => s.trim()).filter(s => s)
+//   form.value.TEACHING_METHOD_ENGLISH = teachingInput.value.split(',').map(s => s.trim()).filter(s => s)
+//   form.value.FACILITIES_ENGLISH = facilitiesInput.value.split(',').map(s => s.trim()).filter(s => s)
+
+//   // Calculate total rating (optional)
+//   const ratings = [form.value.Envrionment, form.value.Teacher, form.value.Resrouces, form.value.Convenient].filter(r => r)
+//   form.value.Total = ratings.length ? Math.round(ratings.reduce((a, b) => a + b) / ratings.length) : null
+
+//   try {
+//     const res = await fetch('/api/kindergartens', {
+//       method: 'POST',
+//       headers: { 'Content-Type': 'application/json' },
+//       body: JSON.stringify(form.value)
+//     })
+
+//     if (!res.ok) throw new Error('Failed to add')
+
+//     alert('Kindergarten added successfully!')
+//     bootstrap.Modal.getInstance(document.getElementById('addKindergartenModal')).hide()
+//     form.value = { ...initialFormState } // reset
+//     // Refetch list if needed
+//   } catch (err) {
+//     alert('Error: ' + err.message)
+//   }
+// }
 </script>
 
 <template>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
 
-  <div class="container py-4">
-    <h2 class="my-4 text fw-bold">Kindergarten</h2>
+  <div class="container py-4 mt-4">
+    <div class="d-flex justify-content-between align-items-center my-4">
+    <h2 class="mb-0 text fw-bold">{{ $t('kindergarten') }}</h2>
+
+    <!-- Add Kindergarten Button -->
+    <button v-if="decoded && decoded.isAdmin"
+        type="button" 
+        class="btn btn-primary rounded-pill px-4 py-2 shadow-sm d-flex align-items-center gap-2" 
+        data-bs-toggle="modal" 
+        data-bs-target="#addKindergartenModal"
+    >
+        <i class="bi bi-plus-lg fs-5"></i>
+        Add Kindergarten
+    </button>
+    </div>
 
     <!-- Search + Filter Toggle -->
     <div class="d-flex flex-wrap gap-3 align-items-center mb-4">
       <button class="btn btn-outline-secondary btn-lg" @click="toggleFilters">
         <i class="fas fa-filter me-2"></i>
-        {{ filtersVisible ? 'Hide' : 'Show' }} Filters
+        {{ filtersVisible ? $t('hideFilters') : $t('showFilters') }}
       </button>
 
       <div class="input-group flex-grow-1" style="max-width: 400px;">
@@ -225,7 +371,7 @@ function goToDetail(kg) {
           v-model="search"
           type="search"
           class="form-control form-control-lg"
-          placeholder="Search by school name..."
+          :placeholder="$t('searchPlaceholder')"
         />
         <span class="input-group-text">
           <i class="fas fa-search"></i>
@@ -239,56 +385,56 @@ function goToDetail(kg) {
         <div class="row g-3">
           <div class="col-md-2">
             <select v-model="region" class="form-select">
-              <option value="">Region</option>
-              <option value="Kowloon">Kowloon</option>
-              <option value="New Territories">New Territories</option>
-              <option value="Hong Kong Island">Hong Kong Island</option>
+              <option value="">{{ $t('region') }}</option>
+              <option value="Kowloon">{{ $t('kowloon') }}</option>
+              <option value="New Territories">{{ $t('newterritories') }}</option>
+              <option value="Hong Kong Island">{{ $t('hongkongisland') }}</option>
             </select>
           </div>
           <div class="col-md-2">
             <select v-model="district" class="form-select">
-              <option value="">District</option>
-              <option value="KOWLOON CITY">Kowloon City</option>
-              <option value="KWUN TONG">Kwun Tong</option>
-              <option value="SHAM SHUI PO">Sham Shui Po</option>
-              <option value="WONG TAI SIN">Wong Tai Sin</option>
-              <option value="YAU TSIM MONG">Yau Tsim Mong</option>
-              <option value="ISLANDS">Islands</option>
-              <option value="KWAI TSING">Kwai Tsing</option>
-              <option value="NORTH">North</option>
-              <option value="SAI KUNG">Sai Kung</option>
-              <option value="SHA TIN">Sha Tin</option>
-              <option value="TAI PO">Tai Po</option>
-              <option value="TSUEN WAN">Tsuen Wan</option>
-              <option value="TUEN MUN">Tuen Mun</option>
-              <option value="YUEN LONG">Yuen Long</option>
-              <option value="CENTRAL AND WESTERN">Central and Western</option>
-              <option value="EASTERN">Eastern</option>
-              <option value="SOUTHERN">Southern</option>
-              <option value="WAN CHAI">Wan Chai</option>
+              <option value="">{{ $t('district') }}</option>
+              <option value="KOWLOON CITY">{{ $t('districts.KOWLOON_CITY') }}</option>
+                <option value="KWUN TONG">{{ $t('districts.KWUN_TONG') }}</option>
+                <option value="SHAM SHUI PO">{{ $t('districts.SHAM_SHUI_PO') }}</option>
+                <option value="WONG TAI SIN">{{ $t('districts.WONG_TAI_SIN') }}</option>
+                <option value="YAU TSIM MONG">{{ $t('districts.YAU_TSIM_MONG') }}</option>
+                <option value="ISLANDS">{{ $t('districts.ISLANDS') }}</option>
+                <option value="KWAI TSING">{{ $t('districts.KWAI_TSING') }}</option>
+                <option value="NORTH">{{ $t('districts.NORTH') }}</option>
+                <option value="SAI KUNG">{{ $t('districts.SAI_KUNG') }}</option>
+                <option value="SHA TIN">{{ $t('districts.SHA_TIN') }}</option>
+                <option value="TAI PO">{{ $t('districts.TAI_PO') }}</option>
+                <option value="TSUEN WAN">{{ $t('districts.TSUEN_WAN') }}</option>
+                <option value="TUEN MUN">{{ $t('districts.TUEN_MUN') }}</option>
+                <option value="YUEN LONG">{{ $t('districts.YUEN_LONG') }}</option>
+                <option value="CENTRAL AND WESTERN">{{ $t('districts.CENTRAL_AND_WESTERN') }}</option>
+                <option value="EASTERN">{{ $t('districts.EASTERN') }}</option>
+                <option value="SOUTHERN">{{ $t('districts.SOUTHERN') }}</option>
+                <option value="WAN CHAI">{{ $t('districts.WAN_CHAI') }}</option>
             </select>
           </div>
           <div class="col-md-2">
             <select v-model="section" class="form-select">
-              <option value="">Section</option>
-              <option value="Whole Day">Whole Day</option>
-              <option value="AM">AM</option>
-              <option value="PM">PM</option>
+              <option value="">{{ $t('section') }}</option>
+              <option value="Whole Day">{{ $t('wholeDay') }}</option>
+              <option value="AM">{{ $t('amSession') }}</option>
+              <option value="PM">{{ $t('pmSession') }}</option>
             </select>
           </div>
           <div class="col-md-2">
             <select v-model="gender" class="form-select">
-              <option value="">Student Gender</option>
-              <option value="CO-ED">Co-Ed</option>
-              <option value="BOYS">Boys</option>
-              <option value="GIRLS">Girls</option>
+              <option value="">{{ $t('studentGender') }}</option>
+              <option value="CO-ED">{{ $t('coed') }}</option>
+              <option value="BOYS">{{ $t('boys') }}</option>
+              <option value="GIRLS">{{ $t('girls') }}</option>
             </select>
           </div>
           <div class="col-md-2">
             <select v-model="N_Class" class="form-select">
-                <option value="">Pre Class</option>
-                <option value="true">Yes</option>
-                <option value="false">No</option>
+                <option value="">{{ $t('preClass') }}</option>
+                <option value="true">{{ $t('yes') }}</option>
+                <option value="false">{{ $t('no') }}</option>
             </select>
           </div>
         </div>
@@ -296,58 +442,61 @@ function goToDetail(kg) {
         <div class="row mt-3 g-3">
           <div class="col-md-3">
             <select v-model="religion" class="form-select">
-              <option value="">Religion</option>
-              <option value="BUDDHISM">Buddhism</option>
-              <option value="CATHOLICISM">Catholicism</option>
-              <option value="PROTESTANTISM / CHRISTIANITY">Protestantism / Christianity</option>
-              <option value="TAOISM">Taoism</option>
-              <option value="NOT APPLICABLE">Not Applicable</option>
+              <option value="">{{ $t('religion') }}</option>
+              <option value="BUDDHISM">{{ $t('religionBuddhism') }}</option>
+              <option value="CATHOLICISM">{{ $t('religionCatholicism') }}</option>
+              <option value="PROTESTANTISM / CHRISTIANITY">{{ $t('religionProtestantism') }}</option>
+              <option value="TAOISM">{{ $t('religionTaoism') }}</option>
+              <option value="NOT APPLICABLE">{{ $t('religionNotApplicable') }}</option>
             </select>
           </div>
           <div class="col-md-3">
             <select v-model="tuition" class="form-select">
-              <option value="">Tuition Fee</option>
-              <option value="Free">Free</option>
+              <option value="">{{ $t('tuitionFee') }}</option>
+              <option value="Free">{{ $t('free') }}</option>
               <option value="<=10000">≤ $10,000</option>
               <option value=">10000">> $10,000</option>
             </select>
           </div>
 
-          <!-- Atmosphere Checkboxes -->
-          <div class="col-md-3">
-            <label class="form-label fw-bold text-primary">Atmosphere</label>
+         <div class="col-md-3">
+            <label class="form-label fw-bold text-primary">{{ $t('atmosphere') }}</label>
             <div class="d-flex flex-wrap gap-2">
-              <div v-for="opt in ['Lively','Joyful','Serious','Relaxed','Interactive','Tense','Dull','Creative','Supportive','Exploratory']" :key="opt">
+                <div v-for="opt in atmosphereOptions" :key="opt.value">
                 <div class="form-check form-check-inline">
-                  <input class="form-check-input" type="checkbox" :value="opt" :id="'atm-'+opt" v-model="atmosphere">
-                  <label class="form-check-label small" :for="'atm-'+opt">{{ opt }}</label>
+                    <input class="form-check-input" type="checkbox" :value="opt.value" :id="'atm-'+opt.value" v-model="atmosphere">
+                    <label class="form-check-label small" :for="'atm-'+opt.value">
+                    {{ $t(opt.label) }}
+                    </label>
                 </div>
-              </div>
+                </div>
             </div>
-          </div>
+            </div>
 
-          <!-- Teaching Methods Checkboxes -->
-          <div class="col-md-3">
-            <label class="form-label fw-bold text-success">Teaching Method</label>
+            <!-- Teaching Method Checkboxes -->
+            <div class="col-md-3">
+            <label class="form-label fw-bold text-success">{{ $t('teachingMethod') }}</label>
             <div class="d-flex flex-wrap gap-2">
-              <div v-for="method in ['Traditional Teaching','Constructivism','Cooperative Learning','Problem-Based Learning','Inquiry-Based Learning','Flipped Classroom','Multiple Intelligences Theory','Lecture Mode','Discussion Mode','Practical Mode','Case Study','Role Play','Gamified Learning','Individualized Learning']" :key="method">
+                <div v-for="method in teachingMethodOptions" :key="method.value">
                 <div class="form-check form-check-inline">
-                  <input class="form-check-input" type="checkbox" :value="method" :id="'tm-'+method" v-model="teachingMethods">
-                  <label class="form-check-label small" :for="'tm-'+method">{{ method.split(' ')[0] }}</label>
+                    <input class="form-check-input" type="checkbox" :value="method.value" :id="'tm-'+method.value" v-model="teachingMethods">
+                    <label class="form-check-label small" :for="'tm-'+method.value">
+                    {{ $t(method.label) }}
+                    </label>
                 </div>
-              </div>
+                </div>
             </div>
-          </div>
-        </div>
+            </div>
+            </div>
 
         <div class="mt-4 text-end">
-          <button class="btn btn-danger me-2" @click="clearFilters">Clear All</button>
+          <button class="btn btn-danger me-2" @click="clearFilters">{{ $t('clearAll') }}</button>
         </div>
       </div>
     </div>
 
     <!-- Results Header -->
-    <h2 class="mt-4 mb-3 text-success">Order By Ranking</h2>
+    <h2 class="mt-4 mb-3 text-success">{{ $t('orderByRanking') }}</h2>
 
     <!-- Long Vertical Cards (your exact layout, but prettier) -->
     <div class="kindergarten-container">
@@ -379,14 +528,29 @@ function goToDetail(kg) {
         :key="kg._id"
         class="kindergarten-card mb-4 position-relative"
       >
-      <div class="bookmark-btn" @click.stop="toggleBookmark(kg)">
-        <i 
-            :class="bookmarks.includes(kg._id.toString()) 
-                    ? 'bi bi-bookmark-fill text-warning' 
-                    : 'bi bi-bookmark'"
-            class="fs-3"
-        ></i>
+      <div v-if="decoded" class="action-buttons d-flex align-items-center gap-2">
+        <!-- Compare Button -->
+        <button 
+            @click.stop="handleAddToCompare(kg)"
+            class="btn btn-outline-primary btn-sm rounded-pill d-flex align-items-center gap-1 shadow-sm"
+            :class="{ 'btn-primary text-white': compareStore.isInCompare(kg._id) }"
+        >
+            <i class="bi bi-arrow-left-right"></i>
+            {{ compareStore.isInCompare(kg._id) ? $t('addedToCompare') : $t('compare') }}
+        </button>
+
+        <!-- Bookmark -->
+        <button 
+            class="bookmark-btn btn btn-light btn-sm rounded-circle shadow-sm d-flex align-items-center justify-content-center"
+            @click.stop="toggleBookmark(kg)"
+        >
+            <i :class="bookmarks.includes(kg._id.toString()) 
+                        ? 'bi bi-bookmark-fill text-warning' 
+                        : 'bi bi-bookmark'" class="fs-4"></i>
+        </button>
         </div>
+
+
 
         <div class="card shadow-lg border-0 rounded-4 overflow-hidden hover-lift" @click="goToDetail(kg)" style="cursor: pointer;">
           <div class="row g-0">
@@ -406,22 +570,22 @@ function goToDetail(kg) {
 
                 <div class="d-flex flex-wrap gap-2 mb-3">
                   <span class="badge bg-warning text-dark fs-6 px-3">
-                    {{ kg.Tuition_fee === 0 ? 'FREE' : `${kg.Tuition_fee}` }}
+                    {{ kg.Tuition_fee === "Free" ? $t('free') : `${kg.Tuition_fee}` }}
                   </span>
-                  <span class="badge bg-primary fs-6">{{ kg.RELIGION || 'None' }}</span>
-                  <span class="badge bg-success fs-6">{{ kg.STUDENTS_GENDER }}</span>
-                  <span v-if="kg.N_Class" class="badge fs-6" style="background-color: #6610f2; color: white;" >Pre-Class</span>
-                  <span class="badge bg-danger fs-6">{{ kg.DISTRICT?.replace(/_/g, ' ') }}</span>
+                  <span class="badge bg-primary fs-6">{{ translateDbValue(kg.RELIGION) || $t('none') }}</span>
+                  <span class="badge bg-success fs-6">{{ translateDbValue(kg.STUDENTS_GENDER) }}</span>
+                  <span v-if="kg.N_Class" class="badge fs-6" style="background-color: #6610f2; color: white;" >{{ $t('preClassBadge') }}</span>
+                  <span class="badge bg-danger fs-6">{{ $t(`districts.${normalizeDistrict(kg.DISTRICT)}`) }}</span>
                 </div>
 
                 <div class="d-flex flex-wrap gap-2">
-                  <span v-if="kg.SESSION_WHOLE_DAY" class="badge" style="background:#ff9999; color:white;">Whole Day</span>
-                  <span v-if="kg.SESSION_AM" class="badge bg-info text-dark">AM Session</span>
-                  <span v-if="kg.SESSION_PM" class="badge bg-secondary">PM Session</span>
+                  <span v-if="kg.SESSION_WHOLE_DAY" class="badge" style="background:#ff9999; color:white;">{{ $t('wholeDay') }}</span>
+                  <span v-if="kg.SESSION_AM" class="badge bg-info text-dark">{{ $t('amSession') }}</span>
+                  <span v-if="kg.SESSION_PM" class="badge bg-secondary">{{ $t('pmSession') }}</span>
                 </div>
 
                 <div class="mt-3 text-end">
-                  <small class="text-primary fw-bold">Click to view details →</small>
+                  <small class="text-primary fw-bold">{{ $t('clickToViewDetails') }}</small>
                 </div>
               </div>
             </div>
@@ -445,12 +609,46 @@ function goToDetail(kg) {
       </ul>
     </nav>
 
-    <!-- No Results -->
-    <div v-if="!loading && kindergartens.length === 0" class="text-center py-5">
-      <p class="display-6 text-muted">No kindergartens found matching your filters.</p>
-      <button @click="clearFilters" class="btn btn-outline-primary btn-lg">Clear All Filters</button>
+    <!-- Floating Compare Bar - WILL NOW SHOW -->
+    <div v-if="compareCount > 0" 
+        class="position-fixed bottom-0 start-0 end-0 bg-white shadow-lg border-top p-3"
+        style="z-index: 1050;">
+    <div class="container">
+        <div class="d-flex justify-content-between align-items-center">
+        <div>
+            <strong>{{ $t('comparingKindergartens', { count: compareCount }) }}</strong>
+            <span class="ms-3 small text-muted">
+            {{ compareItems.map(k => k.ENGLISH_NAME).join(' vs ') }}
+            </span>
+        </div>
+        <div class="d-flex gap-2">
+            <router-link to="/compare" class="btn btn-success px-4">
+            {{ $t('viewComparison') }}
+            </router-link>
+            <button @click="compareStore.clearCompare" class="btn btn-outline-secondary">
+            {{ $t('clear') }}
+            </button>
+        </div>
+        </div>
     </div>
-  </div>
+    </div>
+    </div>
+
+
+  <!-- Add Kindergarten Button (place next to your heading) -->
+<!-- <div class="d-flex justify-content-between align-items-center my-4">
+  <h2 class="mb-0 fw-bold">{{ $t('kindergarten') }}</h2>
+
+  <button 
+    type="button" 
+    class="btn btn-primary rounded-pill px-4 py-2 shadow-sm d-flex align-items-center gap-2"
+    data-bs-toggle="modal" 
+    data-bs-target="#addKindergartenModal"
+  >
+    <i class="bi bi-plus-lg fs-5"></i>
+    {{ $t('addKindergarten') }}
+  </button>
+</div> -->
 </template>
 
 <style scoped>
@@ -472,7 +670,7 @@ function goToDetail(kg) {
     padding: 0 !important;
   }
 }
-.bookmark-btn {
+/* .bookmark-btn {
   position: absolute;
   top: 12px;
   right: 12px;
@@ -488,4 +686,57 @@ function goToDetail(kg) {
   transform: scale(1.1);
 }
 
+.action-buttons {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 8px;
+}
+.compare-btn {
+  background: rgba(154, 35, 35, 0.8);
+  padding: 6px 10px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+.compare-btn:hover {
+  transform: scale(1.1);
+} */
+.action-buttons {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 8px;
+  z-index: 10;
+}
+
+
+.bookmark-btn,
+.compare-btn {
+  background: rgba(255,255,255,0.8);
+  padding: 6px 10px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: 0.2s ease;
+  
+}
+
+.bookmark-btn:hover,
+.compare-btn:hover {
+  transform: scale(1.1);
+}
+/* In your <style> or global CSS */
+.compare-floating-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: white;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.1);
+  padding: 1rem 0;
+  border-top: 1px solid #e9ecef;
+  z-index: 1050;
+}
 </style>

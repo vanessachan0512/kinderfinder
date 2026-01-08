@@ -1,5 +1,8 @@
 <script setup>
 import { ref } from 'vue';
+import { useI18n } from 'vue-i18n'; // ← ADD THIS
+
+const { t } = useI18n(); // ← ADD THIS LINE
 
 const email = ref('');
 const password = ref('');
@@ -28,11 +31,13 @@ const login = async () => {
     localStorage.setItem('token', data.token);
     localStorage.setItem('isAdmin', data.isAdmin);
 
-    alert('Login successful!');
+    alert(t('loginSuccess'))
     window.location.href = '/home';
   } catch (err) {
-    alert('Invalid email or password');
-    console.error(err);
+   const message = err.message.includes('invalid') || err.message.includes('credential')
+      ? t('loginFailed')
+      : t('loginError')
+    alert(message)
   } finally {
     isLoading.value = false; // ✅ hide loading AFTER backend finishes
   }
@@ -53,10 +58,10 @@ const login = async () => {
       <!-- Welcoming Header -->
       <div class="text-center mb-5">
         <h2 class="display-5 fw-bold mb-3">
-          Welcome Back to KinderFinder 👨‍👩‍👧‍👦
+          {{ $t('loginTitle') }}
         </h2>
         <p class="lead text-muted col-lg-8 mx-auto">
-          Log in to connect with other parents and find the perfect kindergarten for your child.
+          {{ $t('loginSubtitle') }}
         </p>
       </div>
 
@@ -67,7 +72,7 @@ const login = async () => {
               <form id="login-form" @submit.prevent="login">
                 <!-- Email -->
                 <div class="mb-4">
-                  <label for="email" class="form-label fw-semibold">Email address</label>
+                  <label for="email" class="form-label fw-semibold">{{ $t('emailLabel') }}</label>
                   <input
                     v-model="email"
                     type="email"
@@ -80,14 +85,14 @@ const login = async () => {
 
                 <!-- Password -->
                 <div class="mb-4">
-                  <label for="password" class="form-label fw-semibold">Password</label>
+                  <label for="password" class="form-label fw-semibold">{{ $t('passwordLabel') }}</label>
                   <div class="input-group">
                     <input
                       v-model="password"
                       :type="showPassword ? 'text' : 'password'"
                       class="form-control form-control-lg rounded-pill"
                       id="password"
-                      placeholder="Enter your password"
+                      :placeholder="$t('passwordPlaceholder')"
                       required
                     >
                     <button
@@ -108,15 +113,15 @@ const login = async () => {
                     class="btn btn-primary btn-lg rounded-pill shadow-sm py-3"
                     :disabled="isLoading"
                   >
-                    <span v-if="!isLoading">Sign In</span>
-                    <span v-else>Signing In...</span>
+                    <span v-if="!isLoading">{{ $t('signIn') }}</span>
+                    <span v-else>{{ $t('signingIn') }}</span>
                   </button>
                 </div>
               </form>
 
               <div class="text-center">
-                <div class="mb-2">New around here? <a href="/signup" class="text-primary fw-semibold">Sign up</a></div>
-                <div>Forgot password? <a href="/forgot-password" class="text-primary fw-semibold">Reset it</a></div>
+                <div class="mb-2">{{ $t('newHere') }} <a href="/signup" class="text-primary fw-semibold">{{ $t('signUp') }}</a></div>
+                <div>{{ $t('forgotPassword') }} <a href="/forgot-password" class="text-primary fw-semibold">{{ $t('resetPassword') }}</a></div>
               </div>
             </div>
           </div>

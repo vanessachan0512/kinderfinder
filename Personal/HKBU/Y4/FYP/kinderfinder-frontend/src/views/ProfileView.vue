@@ -3,8 +3,11 @@ import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import 'emoji-picker-element';
 import { jwtDecode } from "jwt-decode";
+import { useI18n } from 'vue-i18n';
+
 
 const router = useRouter();
+const { t } = useI18n();
 
 // ✅ Toast reference
 let logoutToast = null;
@@ -75,14 +78,39 @@ const newSecurityQuestion = ref('');
 const newSecurityAnswer = ref('');
 const newSecurityAnswerConfirm = ref('');
 
+// In <script setup>
 const securityQuestions = [
-  "What is your mother's maiden name?",
-  "What was your first pet's name?",
-  "What was your first school?",
-  "In which city were you born?",
-  "What is your favorite childhood book?",
-  "What is your mother's name?"
+  { value: "What is your mother's name?", key: 'securityQuestions.motherMaiden' },
+  { value: "What is your father's name?", key: 'securityQuestions.father' },
+  { value: "What was your first pet's name?", key: 'securityQuestions.firstPet' },
+  { value: "What was your first school?", key: 'securityQuestions.firstSchool' },
+  { value: "In which city were you born?", key: 'securityQuestions.birthCity' },
+  { value: "What is your favorite childhood book?", key: 'securityQuestions.favoriteBook' },
 ];
+
+const getTranslatedSecurityQuestion = (question) => {
+  if (!question) return $t('notSet'); // or 'Not set'
+
+  const map = {
+    "What is your mother's name?": 'securityQuestions.motherMaiden',
+    "What is your father's name?": 'securityQuestions.father',
+    "What was your first pet's name?": 'securityQuestions.firstPet',
+    "What was your first school?": 'securityQuestions.firstSchool',
+    "In which city were you born?": 'securityQuestions.birthCity',
+    "What is your favorite childhood book?": 'securityQuestions.favoriteBook'
+  };
+
+  const key = map[question];
+  return key ? t(key) : question; // fallback to original if not found
+};
+
+const toggleEditing = () => {
+  if (editing.value) {
+    // When turning OFF editing → close emoji picker
+    emojiPickerVisible.value = false;
+  }
+  editing.value = !editing.value;
+};
 
 // --- Format birth date for input type="date" ---
 const birthDate = computed({
@@ -147,6 +175,7 @@ const forceLogout = async () => {
 // ✅ Save Profile
 const saveProfile = async () => {
   if (!editing.value) return;
+  if (!confirm(t('confirmchangeAccount'))) return;
 
   showLogoutToast(); // ✅ non-blocking toast
   setTimeout(() => { forceLogout();}, 300); 
@@ -171,8 +200,38 @@ const saveProfile = async () => {
   }
 };
 
+const resetPasswordState = () => {
+  oldPassword.value = '';
+  newPassword.value = '';
+  passwordConfirm.value = '';
+  isCheckingPassword.value = false;
+  isOldPasswordCorrect.value = false;
+  passwordVisible.value = false;
+};
+
+const checkCurrentPassword = () => {
+  if (!oldPassword.value) {
+    isOldPasswordCorrect.value = null;
+    isCheckingPassword.value = false;
+    return;
+  }
+
+  isCheckingPassword.value = true;
+
+  // Simulate small delay for better UX
+  setTimeout(() => {
+    if (oldPassword.value === user.value.password) {
+      isOldPasswordCorrect.value = true;
+    } else {
+      isOldPasswordCorrect.value = false;
+    }
+    isCheckingPassword.value = false;
+  }, 600);
+};
+
 // ✅ Save Password
 const savePassword = async () => {
+  if (!confirm(t('confirmchangepassword'))) return;
   if (!oldPassword.value) return window.alert('Please enter your current password.');
   if (newPassword.value !== passwordConfirm.value) return window.alert('New passwords do not match.');
   if (newPassword.value.length < 8) return window.alert('New password must be at least 8 characters.');
@@ -193,6 +252,7 @@ const savePassword = async () => {
 
 // ✅ Save Security Question
 const saveSecurityQuestion = async () => {
+    if (!confirm(t('confirmchangequestion'))) return;
   if (!newSecurityQuestion.value) return window.alert('Please select a security question.');
   if (newSecurityAnswer.value !== newSecurityAnswerConfirm.value) return window.alert('Answers do not match.');
   if (newSecurityAnswer.value.length < 2) return window.alert('Answer too short.');
@@ -213,12 +273,34 @@ const saveSecurityQuestion = async () => {
     console.error('Backend error:', err.message);
   }
 };
+
+async function deleteAccount() {
+  if (!confirm(t('confirmDeleteAccount'))) return;
+
+  try {
+    const res = await fetch(`/api/users/${userId}/delete`, {
+      method: 'PUT', // or PATCH
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ markAsDeleted: true })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to mark account as deleted');
+
+    alert(t('accountDeleted'));
+    // Clear local storage / token
+    forceLogout();
+    router.push('/signup');
+  } catch (err) {
+    console.error('Delete failed:', err);
+    alert(t('deleteError'));
+  }
+}
+
 </script>
 
-
 <template>
-
-        <div 
+    <div 
     id="logoutToast" 
     class="toast position-fixed bottom-0 end-0 m-4 text-bg-success border-0"
     role="alert"
@@ -228,7 +310,7 @@ const saveSecurityQuestion = async () => {
 
     <div class="d-flex">
       <div class="toast-body fw-semibold">
-        Updating… Logging you out.
+        {{ $t('loggingOut') }}
       </div>
     </div>
   </div>
@@ -236,9 +318,9 @@ const saveSecurityQuestion = async () => {
   <div class="min-vh-100 bg-gradient-light py-5">
     <div class="container-fluid px-4 px-lg-5">
       <div class="text-center mb-5">
-        <h2 class="display-5 fw-bold mb-3">My Profile 👨‍👩‍👧‍👦</h2>
+        <h2 class="display-5 fw-bold mb-3">{{ $t('profileTitle') }}</h2>
         <p class="lead text-muted col-lg-10 mx-auto">
-          Manage your account details and how other parents see you on KinderFinder.
+          {{ $t('profileSubtitle') }}
         </p>
       </div>
 
@@ -249,20 +331,29 @@ const saveSecurityQuestion = async () => {
               <div class="row g-5 align-items-start">
                 <!-- Avatar -->
                 <div class="col-lg-4 text-center">
-                  <h4 class="mb-4">Your Icon</h4>
+                  <h4 class="mb-4">{{ $t('yourIcon') }}</h4>
                   <div class="profile-avatar mx-auto mb-4">
                     <img v-if="profilePreview || user.profilePicture" :src="profilePreview || user.profilePicture" class="rounded-circle shadow" style="width: 240px; height: 240px; object-fit: cover;" />
                     <div v-else class="emoji-display">{{ user.profileEmoji }}</div>
                   </div>
-                  <p class="mb-4 text-muted">This is how others see you!</p>
+                  <p class="mb-4 text-muted">{{ $t('yourIconDescription') }}</p>
 
                   <div class="d-grid gap-3" v-if="editing">
-                    <label class="btn btn-outline-primary btn-lg rounded-pill">
-                      Change Photo
+                    <!-- <label class="btn btn-outline-primary btn-lg rounded-pill">
+                      {{ $t('changePhoto') }}
                       <input type="file" @change="previewProfilePicture" accept="image/*" class="d-none" />
-                    </label>
-                    <button @click="toggleEmojiPicker" class="btn btn-outline-primary btn-lg rounded-pill">Pick Emoji</button>
+                    </label> -->
+                    <button @click="toggleEmojiPicker" class="btn btn-outline-primary btn-lg rounded-pill">{{ $t('pickEmoji') }}</button>
                   </div>
+
+                    <!-- Delete Account Button -->
+                    <div class="mt-4">
+                        <button 
+                        @click="deleteAccount" 
+                        class="btn btn-outline-danger btn-lg rounded-pill px-4 shadow-sm">
+                        {{ $t('deleteAccount') }}
+                        </button>
+                    </div>
 
                   <div v-if="emojiPickerVisible" class="mt-4 bg-white rounded-4 shadow p-3">
                     <emoji-picker @emoji-click="onEmojiClick"></emoji-picker>
@@ -272,34 +363,34 @@ const saveSecurityQuestion = async () => {
                 <!-- Profile Details -->
                 <div class="col-lg-8">
                   <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h4>Personal Information</h4>
-                    <button @click="editing = !editing" class="btn btn-outline-primary rounded-pill">
-                      {{ editing ? 'Cancel' : 'Edit' }}
+                    <h4>{{ $t('personalInfo') }}</h4>
+                    <button @click="toggleEditing" class="btn btn-outline-primary rounded-pill">
+                      {{ editing ? $t('cancel') : $t('edit') }}
                     </button>
                   </div>
 
                   <form @submit.prevent="saveProfile">
                     <div class="row g-4">
-                      <div class="col-md-6"><label class="form-label fw-semibold">First Name</label><input v-model="user.firstName" :disabled="!editing" type="text" class="form-control form-control-lg rounded-pill" /></div>
-                      <div class="col-md-6"><label class="form-label fw-semibold">Middle Name</label><input v-model="user.middleName" :disabled="!editing" type="text" class="form-control form-control-lg rounded-pill" /></div>
-                      <div class="col-md-6"><label class="form-label fw-semibold">Last Name</label><input v-model="user.lastName" :disabled="!editing" type="text" class="form-control form-control-lg rounded-pill" /></div>
-                      <div class="col-md-6"><label class="form-label fw-semibold">Username</label><input v-model="user.username" :disabled="!editing" type="text" class="form-control form-control-lg rounded-pill" /></div>
+                      <div class="col-md-6"><label class="form-label fw-semibold">{{ $t('firstName') }}</label><input v-model="user.firstName" :disabled="!editing" type="text" class="form-control form-control-lg rounded-pill" /></div>
+                      <div class="col-md-6"><label class="form-label fw-semibold">{{ $t('middleName') }}</label><input v-model="user.middleName" :disabled="!editing" type="text" class="form-control form-control-lg rounded-pill" /></div>
+                      <div class="col-md-6"><label class="form-label fw-semibold">{{ $t('lastName') }}</label><input v-model="user.lastName" :disabled="!editing" type="text" class="form-control form-control-lg rounded-pill" /></div>
+                      <div class="col-md-6"><label class="form-label fw-semibold">{{ $t('username') }}</label><input v-model="user.username" :disabled="!editing" type="text" class="form-control form-control-lg rounded-pill" /></div>
 
-                      <div class="col-md-6"><label class="form-label fw-semibold">Email</label><input :value="user.email" disabled class="form-control form-control-lg rounded-pill bg-light" /></div>
-                      <div class="col-md-6"><label class="form-label fw-semibold">Date of Birth</label><input v-model="birthDate" :disabled="!editing" type="date" class="form-control form-control-lg rounded-pill" /></div>
+                      <div class="col-md-6"><label class="form-label fw-semibold">{{ $t('email') }}</label><input :value="user.email" disabled class="form-control form-control-lg rounded-pill bg-light" /></div>
+                      <div class="col-md-6"><label class="form-label fw-semibold">{{ $t('dateOfBirth') }}</label><input v-model="birthDate" :disabled="!editing" type="date" class="form-control form-control-lg rounded-pill" /></div>
 
-                      <div class="col-md-6"><label class="form-label fw-semibold">Gender</label>
+                      <div class="col-md-6"><label class="form-label fw-semibold">{{ $t('gender') }}</label>
                         <select v-model="user.gender" :disabled="!editing" class="form-select form-control-lg rounded-pill">
-                          <option value="" disabled>Select...</option>
-                          <option value="female">Female</option>
-                          <option value="male">Male</option>
-                          <option value="other">Other</option>
-                          <option value="prefer-not">Prefer not to say</option>
+                          <option value="" disabled>{{ $t('selectGender') }}</option>
+                          <option value="female">{{ $t('female') }}</option>
+                          <option value="male">{{ $t('male') }}</option>
+                          <option value="other">{{ $t('other') }}</option>
+                          <option value="prefer-not">{{ $t('preferNotToSay') }}</option>
                         </select>
                       </div>
 
                       <div class="col-12 text-end" v-if="editing">
-                        <button type="submit" class="btn btn-primary btn-lg rounded-pill px-5 shadow-sm">Save Changes</button>
+                        <button type="submit" class="btn btn-primary btn-lg rounded-pill px-5 shadow-sm">{{ $t('saveChanges') }}</button>
                       </div>
                     </div>
                   </form>
@@ -309,26 +400,26 @@ const saveSecurityQuestion = async () => {
                  <!-- Change Password -->
                 <div class="mb-4">
                 <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h5>Change Password</h5>
+                    <h5>{{ $t('changePassword') }}</h5>
                     <button 
                     @click="changingPassword = !changingPassword; resetPasswordState()" 
                     class="btn btn-outline-secondary rounded-pill"
                     >
-                    {{ changingPassword ? 'Cancel' : 'Change' }}
+                    {{ changingPassword ? $t('cancel') : $t('change') }}
                     </button>
                 </div>
 
                 <div v-if="changingPassword" class="row g-4">
                     <!-- Current Password -->
                     <div class="col-8">
-                    <label class="form-label fw-semibold">Current Password</label>
+                    <label class="form-label fw-semibold">{{ $t('currentPassword') }}</label>
                     <div class="input-group">
                         <input
                         v-model="oldPassword"
                         @input="checkCurrentPassword"
                         :type="passwordVisible ? 'text' : 'password'"
                         class="form-control form-control-lg rounded-pill"
-                        placeholder="Enter current password"
+                        :placeholder="$t('currentPassword')"
                         required
                         />
                         <button
@@ -345,26 +436,26 @@ const saveSecurityQuestion = async () => {
                     <div class="mt-2">
                         <small v-if="isCheckingPassword" class="text-muted d-flex align-items-center gap-1">
                         <div class="spinner-border spinner-border-sm" role="status"></div>
-                        Checking current password...
+                        {{ $t('checkingPassword') }}
                         </small>
                         <small v-else-if="isOldPasswordCorrect === true" class="text-success">
-                        ✓ Current password is correct
+                        {{ $t('passwordCorrect') }}
                         </small>
                         <small v-else-if="isOldPasswordCorrect === false" class="text-danger">
-                        ✗ Current password is incorrect
+                        {{ $t('passwordIncorrect') }}
                         </small>
                     </div>
                     </div>
 
                     <!-- New Password -->
                     <div class="col-md-6">
-                    <label class="form-label fw-semibold">New Password</label>
+                    <label class="form-label fw-semibold">{{ $t('newPassword') }}</label>
                     <div class="input-group">
                         <input
                         v-model="newPassword"
                         :type="passwordVisible ? 'text' : 'password'"
                         class="form-control form-control-lg rounded-pill"
-                        placeholder="Enter new password"
+                        :placeholder="$t('newPassword2')"
                         :disabled="!isOldPasswordCorrect"
                         required
                         />
@@ -382,13 +473,13 @@ const saveSecurityQuestion = async () => {
 
                     <!-- Confirm New Password -->
                     <div class="col-md-6">
-                    <label class="form-label fw-semibold">Confirm New Password</label>
+                    <label class="form-label fw-semibold">{{ $t('confirmNewPassword') }}</label>
                     <div class="input-group">
                         <input
                         v-model="passwordConfirm"
                         type="password"
                         class="form-control form-control-lg rounded-pill"
-                        placeholder="Confirm new password"
+                        :placeholder="$t('confirmNewPassword')"
                         :disabled="!isOldPasswordCorrect"
                         required
                         />
@@ -402,7 +493,7 @@ const saveSecurityQuestion = async () => {
                         :disabled="!isOldPasswordCorrect || newPassword !== passwordConfirm || newPassword.length < 8"
                         class="btn btn-primary btn-lg rounded-pill px-5 shadow-sm"
                     >
-                        Update Password
+                        {{ $t('updatePassword') }}
                     </button>
                     </div>
                 </div>
@@ -412,28 +503,30 @@ const saveSecurityQuestion = async () => {
                   <!-- Security Question & Answer -->
                   <div>
                     <div class="d-flex justify-content-between align-items-center mb-3">
-                      <h5>Security Question & Answer</h5>
-                      <button @click="changingSecurity = !changingSecurity" class="btn btn-outline-secondary rounded-pill">{{ changingSecurity ? 'Cancel' : 'Change' }}</button>
+                      <h5>{{ $t('securityQuestionTitle') }}</h5>
+                      <button @click="changingSecurity = !changingSecurity" class="btn btn-outline-secondary rounded-pill">{{ changingSecurity ? $t('cancel') : $t('change') }}</button>
                     </div>
-                    <p class="text-muted small mb-4">Used for account recovery</p>
+                    <p class="text-muted small mb-4">{{ $t('securityQuestionSubtitle') }}</p>
 
                     <div v-if="!changingSecurity" class="p-3 bg-light rounded-4">
-                      <strong>{{ user.securityQuestion || 'Not set' }}</strong>
+                      <strong>{{ getTranslatedSecurityQuestion(user.securityQuestion) }}</strong>
                     </div>
 
                     <div v-else class="row g-4">
                       <div class="col-12">
-                        <label class="form-label fw-semibold">Security Question</label>
+                        <label class="form-label fw-semibold">{{ $t('securityQuestion') }}</label>
                         <select v-model="newSecurityQuestion" class="form-select form-control-lg rounded-pill">
-                          <option value="" disabled>Choose a question...</option>
-                          <option v-for="q in securityQuestions" :key="q" :value="q">{{ q }}</option>
+                          <option value="" disabled>{{ $t('chooseQuestion') }}</option>
+                         <option v-for="q in securityQuestions" :key="q.value" :value="q.value">
+                            {{ $t(q.key) }}
+                        </option>
                         </select>
                       </div>
-                      <div class="col-md-6"><label class="form-label fw-semibold">New Answer</label><input v-model="newSecurityAnswer" type="text" class="form-control form-control-lg rounded-pill" required /></div>
-                      <div class="col-md-6"><label class="form-label fw-semibold">Confirm Answer</label><input v-model="newSecurityAnswerConfirm" type="text" class="form-control form-control-lg rounded-pill" required /></div>
+                      <div class="col-md-6"><label class="form-label fw-semibold">{{ $t('newAnswer') }}</label><input v-model="newSecurityAnswer" type="text" class="form-control form-control-lg rounded-pill" required /></div>
+                      <div class="col-md-6"><label class="form-label fw-semibold">{{ $t('confirmAnswer') }}</label><input v-model="newSecurityAnswerConfirm" type="text" class="form-control form-control-lg rounded-pill" required /></div>
                       <div class="col-12 text-end">
                         <!-- <button @click="cancelSecurity" class="btn btn-secondary rounded-pill me-3">Cancel</button> -->
-                        <button @click="saveSecurityQuestion" class="btn btn-primary rounded-pill px-5">Save</button>
+                        <button @click="saveSecurityQuestion" class="btn btn-primary rounded-pill px-5">{{ $t('save') }}</button>
                       </div>
                     </div>
                   </div>
@@ -445,6 +538,7 @@ const saveSecurityQuestion = async () => {
       </div>
     </div>
   </div>
+  
 </template>
 
 <style scoped>

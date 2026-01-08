@@ -10,14 +10,9 @@ import piniaPluginPersistedstate from 'pinia-plugin-persistedstate'
 const pinia = createPinia()
 pinia.use(piniaPluginPersistedstate)
 
-// Bootstrap CSS (keep only one)
-import 'bootstrap/dist/css/bootstrap.min.css';
-
-// Bootstrap JS — this is the correct, official way for Vite + Vue 3
-import * as bootstrap from 'bootstrap';
-
-// Expose to window (required for data-bs-toggle to work)
-window.bootstrap = bootstrap;
+import 'bootstrap/dist/css/bootstrap.min.css'
+import * as bootstrap from 'bootstrap'
+window.bootstrap = bootstrap
 
 // Bootstrap Icons
 import 'bootstrap-icons/font/bootstrap-icons.css';

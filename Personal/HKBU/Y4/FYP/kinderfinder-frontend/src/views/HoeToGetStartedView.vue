@@ -5,76 +5,77 @@
 <template>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
 
-  <div class="container mt-5">
-    <h1 class="text-center">How to Get Started</h1>
+    <div class="container mt-5">
+        <h1 class="text-center">{{ $t('howToGetStarted') }}</h1>
 
-    <p>
-      Welcome to KinderFinder! Choosing the right kindergarten is a vital decision that shapes your child's early learning experience. As you navigate this journey, consider what matters most: the school's atmosphere, the learning environment, and the values that match your family’s philosophy. Look for a nurturing space where your child can thrive. Remember, exploring options and asking questions during visits is crucial. You don’t have to do this alone—let us help you find the perfect kindergarten tailored to your needs! Follow these simple steps to find the perfect kindergarten for your child.
-    </p>
+        <p>
+        {{ $t('welcomeText') }}
+        </p>
 
-    <!-- Steps -->
-    <div class="step" data-bs-target="#step1">
-      <i class="fa fa-user-plus icon"></i>
-      <strong>Step 1: Sign Up</strong>
-      <div id="step1" >
-        <p class="mt-3">Create your account by clicking the Sign Up button on our homepage.</p>
-      </div>
+        <!-- Steps -->
+        <div class="step" data-bs-target="#step1">
+        <i class="fa fa-user-plus icon"></i>
+        <strong>{{ $t('step1') }}</strong>
+        <div id="step1">
+            <p class="mt-3">{{ $t('step1Desc') }}</p>
+        </div>
+        </div>
+
+        <div class="step" data-bs-target="#step2">
+        <i class="fa fa-pencil-alt icon"></i>
+        <strong>{{ $t('step2') }}</strong>
+        <div id="step2">
+            <p class="mt-3">{{ $t('step2Desc') }}</p>
+        </div>
+        </div>
+
+        <div class="step" data-bs-target="#step3">
+        <i class="fa fa-search icon"></i>
+        <strong>{{ $t('step3') }}</strong>
+        <div id="step3">
+            <p class="mt-3">{{ $t('step3Desc') }}</p>
+        </div>
+        </div>
+
+        <div class="step" data-bs-target="#step4">
+        <i class="fa fa-star icon"></i>
+        <strong>{{ $t('step4') }}</strong>
+        <div id="step4">
+            <p class="mt-3">{{ $t('step4Desc') }}</p>
+        </div>
+        </div>
+
+        <div class="step" data-bs-target="#step5">
+        <i class="fa fa-calendar-alt icon"></i>
+        <strong>{{ $t('step5') }}</strong>
+        <div id="step5">
+            <p class="mt-3">{{ $t('step5Desc') }}</p>
+        </div>
+        </div>
+
+        <div class="step" data-bs-target="#step6">
+        <i class="fa fa-check-circle icon"></i>
+        <strong>{{ $t('step6') }}</strong>
+        <div id="step6">
+            <p class="mt-3">{{ $t('step6Desc') }}</p>
+        </div>
+        </div>
+
+        <div class="step" data-bs-target="#step7">
+        <i class="fa fa-paper-plane icon"></i>
+        <strong>{{ $t('step7') }}</strong>
+        <div id="step7">
+            <p class="mt-3">{{ $t('step7Desc') }}</p>
+        </div>
+        </div>
+
+        <!-- Assistance -->
+        <h3 class="mt-5">{{ $t('needAssistance') }}</h3>
+        <p>
+        {{ $t('assistanceText') }}
+        </p>
     </div>
 
-    <div class="step" data-bs-target="#step2">
-      <i class="fa fa-pencil-alt icon"></i>
-      <strong>Step 2: Profile Setup</strong>
-      <div id="step2">
-        <p class="mt-3">Complete your profile with your child's information for personalized recommendations.</p>
-      </div>
-    </div>
-
-    <div class="step" data-bs-target="#step3">
-      <i class="fa fa-search icon"></i>
-      <strong>Step 3: Explore Kindergartens</strong>
-      <div id="step3">
-        <p class="mt-3">Browse through kindergartens by location and preferences.</p>
-      </div>
-    </div>
-
-    <div class="step" data-bs-target="#step4">
-      <i class="fa fa-star icon"></i>
-      <strong>Step 4: Read Reviews</strong>
-      <div id="step4">
-        <p class="mt-3">Check reviews from other parents to gain insights.</p>
-      </div>
-    </div>
-
-    <div class="step" data-bs-target="#step5">
-      <i class="fa fa-calendar-alt icon"></i>
-      <strong>Step 5: Schedule Visits</strong>
-      <div id="step5" >
-        <p class="mt-3">Schedule kindergarten visits and meet teachers.</p>
-      </div>
-    </div>
-
-    <div class="step" data-bs-target="#step6">
-      <i class="fa fa-check-circle icon"></i>
-      <strong>Step 6: Choose the Right Kindergarten</strong>
-      <div id="step6" >
-        <p class="mt-3">Consider factors like educational philosophy, location, facilities, and reviews.</p>
-      </div>
-    </div>
-
-    <div class="step" data-bs-target="#step7">
-      <i class="fa fa-paper-plane icon"></i>
-      <strong>Step 7: Enroll Your Child</strong>
-      <div id="step7">
-        <p class="mt-3">Follow the kindergarten's process to enroll your child.</p>
-      </div>
-    </div>
-
-    <!-- Assistance -->
-    <h3 class="mt-5">Need Assistance?</h3>
-    <p>
-      If you have any questions or require help at any step, feel free to reach out to our support team through <strong>kinderfindercs@gmail.com</strong>. We’re here to help!
-    </p>
-  </div>
 </template>
 
 <style scoped>

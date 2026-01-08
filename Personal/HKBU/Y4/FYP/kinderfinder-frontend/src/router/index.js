@@ -28,6 +28,18 @@ const routes = [
       component: () => import('../views/CalendarView.vue')
     },
     {
+      path: '/my-saves',
+      name: 'Bookmarks',
+      component: () => import('../views/BookmarkView.vue'),
+      meta: { keepAlive: true }
+    },
+    {
+      path: '/my-discussions',
+      name: 'My Discussions',
+      component: () => import('../views/MyDiscussionView.vue'),
+      meta: { keepAlive: true }
+    },
+    {
       path: '/verify/:email',
       name: 'Verify',
       component: () => import('../views/VerifyView.vue'),
@@ -52,7 +64,8 @@ const routes = [
     {
       path: '/resources',
       name: 'Resources',
-      component: () => import('../views/ResourcesView.vue')
+      component: () => import('../views/ResourcesView.vue'),
+      meta: { keepAlive: true }
     },
     {
       path: '/resources/detail/:sectionID/:articleId',
@@ -73,11 +86,17 @@ const routes = [
     {
       path: '/discussions',
       name: 'All discussions',
-      component: () => import('../views/DiscussionsView.vue')
+      component: () => import('../views/DiscussionsView.vue'),
+      meta: { keepAlive: true }
     },
     {
       path: '/discussion/add',
       name: 'Add discussions',
+      component: () => import('../views/AddDiscussionView.vue')
+    },
+        {
+      path: '/discussion/edit/:discussionId',
+      name: 'Edit discussions',
       component: () => import('../views/AddDiscussionView.vue')
     },
     {
@@ -89,13 +108,24 @@ const routes = [
     {
       path: '/kindergartens',
       name: 'All kindergartens',
-      component: () => import('../views/KindergartensView.vue')
+      component: () => import('../views/KindergartensView.vue'),
+      meta: { keepAlive: true }
     },
     {
       path: '/kindergarten/detail/:kindergartenId',
       name: 'Detail kindergarten',
       component: () => import('../views/DetailKindergartenView.vue'),
       props: true
+    },
+    {
+      path: '/compare',
+      name: 'Compare',
+      component: () => import('../views/CompareView.vue')
+    },
+    {
+      path: '/interviewtips',
+      name: 'Interview Tips',
+      component: () => import('../views/InterviewTipsView.vue')
     },
 
 ];

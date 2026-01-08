@@ -1,6 +1,34 @@
 <script setup>
 import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n'
+
+const { t, locale } = useI18n()
+
+// Map of English questions → translation keys
+const securityQuestionTranslations = {
+  "What is your mother's name?": 'securityQuestions.motherMaiden',
+  "What is your father's name?": 'securityQuestions.father',
+  "What was your first pet's name?": 'securityQuestions.firstPet',
+  "What was your first school?": 'securityQuestions.firstSchool',
+  "In which city were you born?": 'securityQuestions.birthCity',
+  "What is your favorite childhood book?": 'securityQuestions.favoriteBook'
+}
+
+// Computed property: translated version of the fetched question
+const translatedSecurityQuestion = computed(() => {
+  if (!securityQuestion.value) return ''
+
+  const englishQuestion = securityQuestion.value.trim()
+  const key = securityQuestionTranslations[englishQuestion]
+
+  if (key) {
+    return t(key)
+  }
+
+  // Fallback: if question not in map (custom question?), just return original
+  return englishQuestion
+})
 
 const router = useRouter();
 
@@ -54,7 +82,7 @@ const isSubmitDisabled = computed(
 // === Trigger security question fetch with button ===
 const fetchSecurityQuestion = async () => {
   if (!email.value.trim()) {
-    securityFeedback.value = 'Please enter your email address.';
+    securityFeedback.value = 'emailRequired';
     return;
   }
 
@@ -75,10 +103,10 @@ const fetchSecurityQuestion = async () => {
       const data = await response.json();
       securityQuestion.value = data.securityQuestion;
     } else {
-      securityFeedback.value = 'No account found with this email or security question not set.';
+      securityFeedback.value = 'noAccountFound';
     }
   } catch (error) {
-    securityFeedback.value = 'Error fetching security question.';
+    securityFeedback.value = 'errorFetchingQuestion';
   } finally {
     loading.value = false;
     fetchingQuestion.value = false;
@@ -89,7 +117,7 @@ const fetchSecurityQuestion = async () => {
 const validateSecurityAnswer = async () => {
   if (!securityAnswer.value.trim()) {
     securityError.value = true;
-    securityFeedback.value = 'Please enter your answer.';
+    securityFeedback.value = 'answerRequired';
     return;
   }
 
@@ -106,17 +134,17 @@ const validateSecurityAnswer = async () => {
 
     if (response.status === 200) {
       securityError.value = false;
-      securityFeedback.value = 'Correct answer! ✓';
+      securityFeedback.value = 'correctAnswer';
     } else if (response.status === 403) {
       securityError.value = true;
-      securityFeedback.value = 'Incorrect answer. Please try again.';
+      securityFeedback.value = 'incorrectAnswer';
     } else {
       securityError.value = true;
-      securityFeedback.value = 'Server error validating answer.';
+      securityFeedback.value = 'serverErrorValidation';
     }
   } catch (error) {
     securityError.value = true;
-    securityFeedback.value = 'Error validating security answer.';
+    securityFeedback.value = 'errorValidatingAnswer';
   } finally {
     loading.value = false;
   }
@@ -142,10 +170,10 @@ const handleSubmit = async () => {
     console.log('Response:', response.status, data);
 
     if (response.ok) {
-      alert(data.message || 'Password updated successfully!');
+      alert(data.message || $t('passwordUpdatedSuccess'));
       router.push('/login');
     } else {
-      alert(data.error || 'Failed to update password.');
+      alert(data.error || $t('passwordUpdateFailed'));
     }
   } catch (error) {
     console.error('Error updating password:', error);
@@ -160,26 +188,26 @@ const handleSubmit = async () => {
     <div class="container">
       <!-- Header & Progress -->
       <div class="text-center mb-5">
-        <h2 class="display-5 fw-bold mb-3">Reset Your Password 👨‍👩‍👧‍👦</h2>
+        <h2 class="display-5 fw-bold mb-3">{{ $t('resetPasswordTitle') }}</h2>
         <p class="lead text-muted col-lg-8 mx-auto">
-          We'll guide you through 3 simple steps: verify your email, answer your security question, then set a new password.
+            {{ $t('resetPasswordSubtitle') }}
         </p>
 
         <!-- Step Progress Indicator (unchanged) -->
         <div class="d-flex justify-content-center align-items-center mt-4 gap-4">
           <div class="text-center">
             <div class="rounded-circle bg-primary text-white d-inline-flex align-items-center justify-content-center" style="width:40px;height:40px;">1</div>
-            <p class="small mt-2 mb-0 fw-semibold">Email</p>
+            <p class="small mt-2 mb-0 fw-semibold">{{ $t('stepEmail') }}</p>
           </div>
           <div class="border-top flex-grow-1 mt-3" style="border-top: 2px dashed #7aefce !important;"></div>
           <div class="text-center">
             <div class="rounded-circle bg-light border border-2 text-muted d-inline-flex align-items-center justify-content-center" :class="{ 'bg-primary text-white border-primary': securityQuestion }" style="width:40px;height:40px;">2</div>
-            <p class="small mt-2 mb-0">Security</p>
+            <p class="small mt-2 mb-0">{{ $t('stepSecurity') }}</p>
           </div>
           <div class="border-top flex-grow-1 mt-3" style="border-top: 2px dashed #7aefce !important;"></div>
           <div class="text-center">
             <div class="rounded-circle bg-light border border-2 text-muted d-inline-flex align-items-center justify-content-center" :class="{ 'bg-primary text-white border-primary': securityQuestion && !securityError && password.length > 0 }" style="width:40px;height:40px;">3</div>
-            <p class="small mt-2 mb-0">New Password</p>
+            <p class="small mt-2 mb-0">{{ $t('stepNewPassword') }}</p>
           </div>
         </div>
       </div>
@@ -191,7 +219,7 @@ const handleSubmit = async () => {
               <form @submit.prevent="handleSubmit" class="row g-4">
                 <!-- Step 1: Email + Button -->
                 <div class="col-12">
-                  <label for="fp-email" class="form-label fw-semibold">Email Address</label>
+                  <label for="fp-email" class="form-label fw-semibold">{{ $t('emailAddress') }}</label>
                   <div class="input-group">
                     <input
                       type="email"
@@ -210,12 +238,12 @@ const handleSubmit = async () => {
                     >
                       <span v-if="fetchingQuestion" class="d-flex align-items-center gap-2">
                         <div class="spinner-border spinner-border-sm" role="status"></div>
-                        Loading...
+                        {{ $t('loadingQuestion') }}
                       </span>
-                      <span v-else>Verify Email</span>
+                      <span v-else>{{ $t('verifyEmail') }}</span>
                     </button>
                   </div>
-                  <small v-if="securityFeedback && !securityQuestion" class="text-danger d-block mt-2">{{ securityFeedback }}</small>
+                  <small v-if="securityFeedback && !securityQuestion" class="text-danger d-block mt-2">{{ $t(securityFeedback) }}</small>
                 </div>
 
                 <!-- Step 2: Security Question & Answer -->
@@ -223,16 +251,16 @@ const handleSubmit = async () => {
                   <div v-if="fetchingQuestion || securityQuestion" class="col-12">
                     <div class="row g-4">
                       <div class="col-md-6">
-                        <label class="form-label fw-semibold">Your Security Question</label>
+                        <label class="form-label fw-semibold">{{ $t('securityQuestionLabel') }}</label>
                         <div v-if="fetchingQuestion" class="p-3 bg-light rounded-4">
                           <div class="skeleton-line mb-2"></div>
                           <div class="skeleton-line short"></div>
                         </div>
-                        <div v-else class="p-3 bg-light rounded-4">{{ securityQuestion }}</div>
+                        <div v-else class="p-3 bg-light rounded-4">{{ translatedSecurityQuestion }}</div>
                       </div>
 
                       <div class="col-md-6">
-                        <label for="fp-securityans" class="form-label fw-semibold">Security Answer</label>
+                        <label for="fp-securityans" class="form-label fw-semibold">{{ $t('securityAnswer') }}</label>
                         <div class="input-group">
                           <input
                             type="text"
@@ -252,17 +280,17 @@ const handleSubmit = async () => {
                           >
                             <span v-if="loading && !fetchingQuestion" class="d-flex align-items-center gap-2">
                               <div class="spinner-border spinner-border-sm" role="status"></div>
-                              Checking...
+                              {{ $t('checkingAnswer') }}
                             </span>
-                            <span v-else>Check Answer</span>
+                            <span v-else>{{ $t('checkAnswer') }}</span>
                           </button>
                         </div>
 
                         <div v-if="securityError && !loading && securityAnswer" class="text-danger small mt-2">
-                          {{ securityFeedback }}
+                          {{ $t(securityFeedback) }}
                         </div>
                         <div v-if="!securityError && securityFeedback && !loading && securityAnswer" class="text-success small mt-2">
-                          {{ securityFeedback }}
+                          {{ $t(securityFeedback) }}
                         </div>
                       </div>
                     </div>
@@ -274,7 +302,7 @@ const handleSubmit = async () => {
                   <div v-if="securityQuestion && !securityError" class="col-12">
                     <div class="row g-4">
                       <div class="col-md-6">
-                        <label for="fp-password" class="form-label fw-semibold">New Password</label>
+                        <label for="fp-password" class="form-label fw-semibold">{{ $t('newPassword') }}</label>
                         <div class="input-group">
                           <input
                             :type="passwordVisible ? 'text' : 'password'"
@@ -289,16 +317,16 @@ const handleSubmit = async () => {
                           </button>
                         </div>
                         <ul class="list-unstyled small mt-3">
-                          <li :class="passwordRequirements.length ? 'text-success' : 'text-muted'">✓ At least 8 characters</li>
-                          <li :class="passwordRequirements.upper ? 'text-success' : 'text-muted'">✓ One uppercase letter</li>
-                          <li :class="passwordRequirements.lower ? 'text-success' : 'text-muted'">✓ One lowercase letter</li>
-                          <li :class="passwordRequirements.number ? 'text-success' : 'text-muted'">✓ One number</li>
-                          <li :class="passwordRequirements.symbol ? 'text-success' : 'text-muted'">✓ One symbol (!@#$% etc.)</li>
+                          <li :class="passwordRequirements.length ? 'text-success' : 'text-muted'">✓ {{ $t('passwordReqLength') }}</li>
+                          <li :class="passwordRequirements.upper ? 'text-success' : 'text-muted'">✓ {{ $t('passwordReqUpper') }}</li>
+                          <li :class="passwordRequirements.lower ? 'text-success' : 'text-muted'">✓ {{ $t('passwordReqLower') }}</li>
+                          <li :class="passwordRequirements.number ? 'text-success' : 'text-muted'">✓ {{ $t('passwordReqNumber') }}</li>
+                          <li :class="passwordRequirements.symbol ? 'text-success' : 'text-muted'">✓ {{ $t('passwordReqSymbol') }}</li>
                         </ul>
                       </div>
 
                       <div class="col-md-6">
-                        <label for="fp-password-confirm" class="form-label fw-semibold">Confirm New Password</label>
+                        <label for="fp-password-confirm" class="form-label fw-semibold">{{ $t('confirmNewPassword') }}</label>
                         <div class="input-group">
                           <input
                             :type="passwordConfirmVisible ? 'text' : 'password'"
@@ -308,7 +336,7 @@ const handleSubmit = async () => {
                             required
                           />
                         </div>
-                        <div v-if="passwordMismatch" class="text-danger small mt-2">Passwords do not match.</div>
+                        <div v-if="passwordMismatch" class="text-danger small mt-2">{{ $t('passwordsDontMatch') }}</div>
                       </div>
                     </div>
                   </div>
@@ -320,16 +348,16 @@ const handleSubmit = async () => {
                     <button type="submit" class="btn btn-primary btn-lg rounded-pill shadow-sm py-3" :disabled="isSubmitDisabled">
                       <span v-if="loading" class="d-flex align-items-center justify-content-center gap-2">
                         <div class="spinner-border spinner-border-sm" role="status"></div>
-                        Updating...
+                        {{ $t('updatingPassword') }}
                       </span>
-                      <span v-else>Update Password</span>
+                      <span v-else>{{ $t('updatePassword') }}</span>
                     </button>
                   </div>
                 </div>
 
                 <div class="text-center mt-4">
                   <small class="text-muted">
-                    Remembered your password? <router-link to="/login" class="text-primary fw-semibold">Log in here</router-link>
+                    {{ $t('rememberedPassword') }} <router-link to="/login" class="text-primary fw-semibold">{{ $t('loginHere') }}</router-link>
                   </small>
                 </div>
               </form>

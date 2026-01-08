@@ -16,72 +16,6 @@
     margin: 40px auto;
     }
 </style>
-<!-- <script setup>
-import { onMounted } from 'vue'
-import { Calendar } from '@fullcalendar/core'
-import dayGridPlugin from '@fullcalendar/daygrid'
-import timeGridPlugin from '@fullcalendar/timegrid'
-import listPlugin from '@fullcalendar/list'
-import bootstrap5Plugin from '@fullcalendar/bootstrap5'
-
-// Function to fetch events from backend
-async function fetchKindergartenEvents() {
-  try {
-    const res = await fetch('/api/kindergartens/dates') // ✅ ensure correct path
-    const data = await res.json()
-    return data.events || []
-  } catch (err) {
-    console.error('Error fetching kindergarten dates:', err)
-    return []
-  }
-}
-
-onMounted(async () => {
-  const calendarEl = document.getElementById('calendar')
-  if (calendarEl) {
-    const events = await fetchKindergartenEvents()
-
-    const calendar = new Calendar(calendarEl, {
-      plugins: [dayGridPlugin, timeGridPlugin, listPlugin, bootstrap5Plugin],
-      timeZone: 'UTC',
-      themeSystem: 'bootstrap5',
-      headerToolbar: {
-        left: 'prev,next today',
-        center: 'title',
-        right: 'dayGridMonth,timeGridWeek,timeGridDay,listMonth'
-      },
-      weekNumbers: true,
-      dayMaxEvents: true,
-      eventDisplay: 'block',
-      events,
-
-      // Force times to show "am/pm" instead of "a/p"
-      slotLabelFormat: {
-        hour: 'numeric',
-        minute: '2-digit',
-        meridiem: 'short' // will show "am"/"pm"
-      },
-      eventTimeFormat: {
-        hour: 'numeric',
-        minute: '2-digit',
-        meridiem: 'short' // also applies to event times
-      },
-
-      eventDidMount: function(info) {
-        if (info.view.type === 'dayGridMonth') {
-          info.el.style.fontSize = '0.95rem'
-          info.el.style.padding = '6px'
-          info.el.style.borderRadius = '4px'
-          info.el.style.whiteSpace = 'normal'
-          info.el.style.color = '#fff'
-        }
-      }
-    })
-    calendar.render()
-  }
-})
-
-</script> -->
 <script setup>
 import { onMounted } from 'vue'
 import { Calendar } from '@fullcalendar/core'
@@ -89,6 +23,7 @@ import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import listPlugin from '@fullcalendar/list'
 import bootstrap5Plugin from '@fullcalendar/bootstrap5'
+ 
 
 async function fetchKindergartenEvents() {
   try {
@@ -201,7 +136,7 @@ onMounted(async () => {
 
 
 <template>
-  <div class="container">
+  <div class="container mt-3">
     <!-- Carousel -->
     <div id="carouselExampleControls" class="carousel slide" data-bs-ride="carousel">
       <div class="carousel-inner">
@@ -248,12 +183,12 @@ onMounted(async () => {
     </div>
 
     <!-- About Us -->
-    <h3 class="mt-4" style="margin-left: 1%">About Us</h3>
+    <h3 class="mt-4" style="margin-left: 1%">{{ $t('aboutUs') }}</h3>
     <div class="container my-4">
       <div class="card shadow">
         <div class="card-body">
           <p class="card-text">
-            At KinderFinder, we understand that choosing the right kindergarten is a crucial step for new parents. Our platform is dedicated to simplifying this process by providing tailored recommendations that align with your family's needs and values. Whether you're looking for a nurturing environment, specific educational philosophies, or convenient locations, KinderFinder is here to guide you. With our user-friendly interface and comprehensive database of kindergartens, we empower parents to make informed decisions, ensuring that your child embarks on a joyful and enriching learning journey. Trust KinderFinder to help you find the perfect starting point for your child's education.
+            {{ $t('aboutUsText') }}          
           </p>
         </div>
       </div>

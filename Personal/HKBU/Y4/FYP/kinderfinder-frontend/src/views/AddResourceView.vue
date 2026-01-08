@@ -159,10 +159,10 @@ function showMessage(text, type = 'success') {
         <div class="d-flex align-items-center justify-content-between mb-5">
           <div>
             <h2 class="mb-1 fw-bold text">
-              {{ isEditMode ? 'Edit Article' : 'Add New Article' }}
+              {{ isEditMode ? 'Edit Resource' : 'Add New Resource' }}
             </h2>
             <p class="text-muted mb-0">
-              {{ isEditMode ? 'Update your article details' : 'Share helpful resources with parents' }}
+              {{ isEditMode ? 'Update your resource details' : 'Share helpful resources with parents' }}
             </p>
           </div>
           <RouterLink to="/resources" class="btn btn-outline-secondary btn-lg">
@@ -258,7 +258,7 @@ function showMessage(text, type = 'success') {
                   :disabled="isSaving || !title.trim() || !embedLink.trim()"
                 >
                   <span v-if="isSaving" class="spinner-border spinner-border-sm me-2"></span>
-                  {{ isSaving ? 'Saving...' : (isEditMode ? 'Update Article' : 'Add Article') }}
+                  {{ isSaving ? 'Saving...' : (isEditMode ? 'Update Resource' : 'Add Resource') }}
                 </button>
 
                 <button
@@ -268,7 +268,7 @@ function showMessage(text, type = 'success') {
                   @click="deleteArticle"
                   :disabled="isSaving"
                 >
-                  Delete Article
+                  Delete Resource
                 </button>
 
                 <div v-if="message" class="ms-auto">

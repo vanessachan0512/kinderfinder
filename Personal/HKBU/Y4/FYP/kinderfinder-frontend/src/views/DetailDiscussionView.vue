@@ -1,28 +1,40 @@
+
 <script setup>
-import { ref, onMounted, nextTick, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { jwtDecode } from "jwt-decode"
+import { jwtDecode } from 'jwt-decode'
 import EmojiPicker from 'vue3-emoji-picker'
 import 'vue3-emoji-picker/css'
 import { Modal } from 'bootstrap'
 import { library } from '@fortawesome/fontawesome-svg-core'
 import { faCircleNotch, faComments } from '@fortawesome/free-solid-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+
 import { useDiscussionDetailStore } from '@/store/discussionDetail'
+import { useSocketStore } from '@/store/socket'
 
 library.add(faCircleNotch, faComments)
 
+// Stores
+const store = useDiscussionDetailStore()
+const socketStore = useSocketStore()
+
+// Reactive data from Pinia (single source of truth)
+const discussion = computed(() => store.passedDiscussion)
+const isBookmarked = computed(() => store.passedIsBookmarked)
+
+// Route
 const route = useRoute()
 const router = useRouter()
 const discussionId = route.params.discussionId
 
-const discussion = ref(null)
-const newMessage = ref('')
-
+// User
 const token = localStorage.getItem('token')
 const decoded = token ? jwtDecode(token) : null
 const userId = decoded?._id
 
+// UI state
+const newMessage = ref('')
 const hoveredComment = ref(null)
 const replyTarget = ref(null)
 const editingTarget = ref(null)
@@ -32,136 +44,190 @@ const reportTarget = ref(null)
 const reportReason = ref('')
 const reportDetails = ref('')
 
-// Bookmark state
-const isBookmarked = ref(false)
-
-// Pinia store
-const store = useDiscussionDetailStore()
-
-// === Instant load from Pinia store ===
-const loadedFromStore = ref(false)
-
-if (store.passedDiscussion) {
-  discussion.value = store.passedDiscussion
-  loadedFromStore.value = true
-}
-
-if (store.passedIsBookmarked !== null) {
-  isBookmarked.value = store.passedIsBookmarked
-  console.log('Initial bookmark from store:', isBookmarked.value)
-  loadedFromStore.value = true
-}
-
-// Clear store when leaving the page (prevents stale data on direct access)
-onUnmounted(() => {
-  store.clearPassedData()
-})
-
-
-// === Fallback: Load from backend if not from store ===
+// Load data & setup real-time
 const loadDiscussionAndBookmark = async () => {
   if (!discussionId) return
 
   try {
-    // Load discussion only if not from store
-    if (!discussion.value) {
-      const res = await fetch(`/api/discussions/${discussionId}`)
-      if (!res.ok) throw new Error('Discussion not found')
-      const data = await res.json()
-      discussion.value = data
-    }
+    const res = await fetch(`/api/discussions/${discussionId}`)
+    if (!res.ok) throw new Error('Discussion not found')
+    const data = await res.json()
 
-    // Load bookmark only if not from store and user is logged in
-    if (!loadedFromStore.value && userId) {
+    let bookmarkStatus = false
+    if (userId) {
       const userRes = await fetch(`/api/users/${userId}`)
       if (userRes.ok) {
         const userData = await userRes.json()
         const bookmarkIds = (userData.discussionsBookmark || []).map(id => id.toString())
-        isBookmarked.value = bookmarkIds.includes(discussionId.toString())
-        console.log('Bookmark loaded from backend:', isBookmarked.value)
+        bookmarkStatus = bookmarkIds.includes(discussionId.toString())
       }
     }
+
+    // Set everything in Pinia store
+    store.setPassedData(data, bookmarkStatus)
   } catch (err) {
-    console.error('Failed to load discussion or bookmark:', err)
-    // Optional: show error state
+    console.error('Failed to load discussion:', err)
   }
 }
 
-onMounted(() => {
-  loadDiscussionAndBookmark()
+onMounted(async () => {
+  await loadDiscussionAndBookmark()
 
+  // Auto-focus input Document Object Model
   nextTick(() => {
     document.querySelector('input')?.focus()
   })
+
+  // Join room & setup real-time listeners
+  if (discussionId) {
+    socketStore.joinDiscussion(discussionId)
+    store.setupRealtime(discussionId)
+  }
 })
 
-// === Optimistic Bookmark Toggle ===
+onBeforeUnmount(() => {
+  socketStore.leaveDiscussion()
+  store.clearPassedData()
+})
+
+// Handle navigation between discussions
+watch(() => route.params.discussionId, (newId, oldId) => {
+  if (oldId) socketStore.leaveDiscussion()
+  if (newId) {
+    socketStore.joinDiscussion(newId)
+    store.setupRealtime(newId)
+  }
+})
+
+const sortedComments = computed(() => {
+  if (!discussion.value?.comments) return []
+  return [...discussion.value.comments].sort((a, b) =>
+    new Date(a.timestamp) - new Date(b.timestamp)
+  )
+})
+
+const topLevelComments = computed(() => {
+  return sortedComments.value.filter(c => !c.replyTo) || []
+})
+
+const getReplies = (parentId) => {
+  return sortedComments.value
+    .filter(c => c.replyTo && c.replyTo._id === parentId)
+    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))  // ← This line fixes it!
+}
+
+const isOwnMessage = (comment) => String(comment.user?._id) === String(decoded?._id)
+
+const isNewDay = (current, previous) => !previous || new Date(current).toDateString() !== new Date(previous).toDateString()
+
+const formatFullDate = (iso) => new Date(iso).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+
+const formatTime = (iso) => {
+//   if (!iso) return 'Invalid Date' // fallback if null/undefined
+    // console.log(iso)
+
+  const date = new Date(iso)
+  if (isNaN(date.getTime())) return 'Invalid Date' // invalid ISO string
+
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+}
+
+// Bookmark toggle
 const toggleBookmark = async () => {
   if (!userId || !discussionId) return
 
   const previous = isBookmarked.value
-
-  // Instant UI update
-  isBookmarked.value = !isBookmarked.value
+  isBookmarked.value = !previous  // optimistic UI
 
   try {
     const res = await fetch(`/api/users/${userId}/bookmark`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ discussionId })
     })
 
-    if (!res.ok) throw new Error("Failed to update bookmark")
+    if (!res.ok) throw new Error('Failed')
 
     const data = await res.json()
     const bookmarkIds = data.discussionsBookmark.map(id => id.toString())
     isBookmarked.value = bookmarkIds.includes(discussionId.toString())
   } catch (err) {
-    console.error("Bookmark toggle failed:", err)
-    isBookmarked.value = previous // rollback
+    console.error('Bookmark failed:', err)
+    isBookmarked.value = previous
   }
 }
 
-// ——— FINAL OPTIMISTIC SEND (NEVER LOSES MESSAGES) ———
+// Other functions (unchanged)
+const addEmoji = (emoji) => {
+  newMessage.value += emoji.native || emoji.i || ''
+  showEmojiPicker.value = false
+}
+
+function replyToComment(c) {
+  replyTarget.value = { _id: c._id, user_id: c.user._id, username: c.user.username, message: c.message }
+  console.log("REply",replyTarget.value)
+  nextTick(() => document.querySelector('input')?.focus())
+  openDropdown.value = null
+}
+
 async function sendMessage() {
   if (!newMessage.value.trim() || !discussion.value || !decoded) return
 
   const messageText = newMessage.value.trim()
-  const tempId = `temp_${Date.now()}_${Math.random().toString(36)}`
   const isEdit = !!editingTarget.value
   const isReply = !!replyTarget.value && !isEdit
 
-  const optimisticComment = {
-    _id: tempId,
-    message: messageText,
-    user: { _id: decoded._id, username: decoded.username, profileEmoji: decoded.profileEmoji || 'smile', profilePicture: decoded.profilePicture },
-    timestamp: new Date().toISOString(),
-    replyTo: isReply ? { ...replyTarget.value } : null,
-    isOptimistic: true,
-    failed: false
-  }
+  const tempId = isEdit ? null : `temp_${Date.now()}_${Math.random().toString(36)}`
 
   let targetIndex = -1
 
+  // === OPTIMISTIC UI ===
   if (isEdit) {
     targetIndex = discussion.value.comments.findIndex(c => c._id === editingTarget.value._id)
     if (targetIndex !== -1) {
-      discussion.value.comments[targetIndex] = { ...discussion.value.comments[targetIndex], message: messageText, isOptimistic: true }
+      discussion.value.comments[targetIndex] = {
+        ...discussion.value.comments[targetIndex],
+        message: messageText,
+        isOptimistic: true,
+        isEdit: true // mark as edited
+        // timestamp preserved
+      }
     }
   } else {
+    const optimisticComment = {
+      _id: tempId,
+      message: messageText,
+      user: {
+        _id: userId,
+        username: decoded.username,
+        profileEmoji: decoded.profileEmoji || 'smile',
+        profilePicture: decoded.profilePicture
+      },
+      timestamp: new Date().toISOString(),
+      replyTo: isReply ? {
+        _id: replyTarget.value._id,
+        user_id: replyTarget.value.user_id,
+        username: replyTarget.value.username,
+        message: replyTarget.value.message,
+        timestamp: new Date().toISOString(),
+      } : null,
+      isOptimistic: true,
+      failed: false
+    }
+
     discussion.value.comments.push(optimisticComment)
     targetIndex = discussion.value.comments.length - 1
   }
+
+  // === RE-SORT ALL COMMENTS BY TIMESTAMP ===
+  discussion.value.comments = [...discussion.value.comments].sort(
+    (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
+  )
 
   nextTick(() => {
     const container = document.querySelector('.flex-grow-1.overflow-auto')
     if (container) container.scrollTop = container.scrollHeight
   })
-
-  newMessage.value = ''
-  replyTarget.value = null
-  editingTarget.value = null
-  showEmojiPicker.value = false
 
   try {
     const url = isEdit
@@ -171,18 +237,60 @@ async function sendMessage() {
     const payload = isEdit
       ? { message: messageText }
       : {
-          user: { _id: decoded._id, username: decoded.username, profileEmoji: decoded.profileEmoji || 'smile', profilePicture: decoded.profilePicture },
+          user: {
+            _id: decoded._id,
+            username: decoded.username,
+            profileEmoji: decoded.profileEmoji || 'smile',
+            profilePicture: decoded.profilePicture
+          },
           message: messageText,
-          replyTo: isReply ? replyTarget.value : null
+          replyTo: isReply ? {
+            _id: replyTarget.value._id,
+            user_id: replyTarget.value.user_id,
+            username: replyTarget.value.username,
+            message: replyTarget.value.message,
+            timestamp: new Date().toISOString(),
+          } : null
         }
 
-    const res = await fetch(url, { method: isEdit ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-    if (!res.ok) throw new Error('Failed')
+    const res = await fetch(url, {
+      method: isEdit ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+
+    if (!res.ok) throw new Error('Failed to send comment')
 
     const result = await res.json()
-    const realComment = isEdit ? result : (result.comment || result)
 
-    // THIS IS THE KEY: Replace temp comment with real one by ID match
+    let realComment
+    if (isEdit) {
+      realComment = result.comment || result
+      const original = discussion.value.comments.find(c => c._id === editingTarget.value._id)
+      if (original) {
+        realComment.user = original.user
+        realComment.timestamp = original.timestamp // ✅ preserve timestamp
+      }
+      realComment.isEdit = true
+    } else {
+      realComment = result.comment || result
+
+      // === UPDATE USER'S COMMENTED DISCUSSIONS ===
+      try {
+        fetch(`/api/users/${decoded._id}/commented-discussions`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ discussionId })
+        })
+      } catch (markErr) {
+        console.warn('Failed to update commentedDiscussions (non-critical):', markErr)
+      }
+
+      if (!realComment.timestamp) {
+        realComment.timestamp = new Date().toISOString()
+      }
+    }
+
     if (targetIndex !== -1) {
       discussion.value.comments.splice(targetIndex, 1, {
         ...realComment,
@@ -191,8 +299,10 @@ async function sendMessage() {
       })
     }
 
-    // Force refresh cache so reload always shows latest
-    await loadFromBackend()
+    // === RE-SORT AGAIN AFTER SERVER RESPONSE ===
+    discussion.value.comments = [...discussion.value.comments].sort(
+      (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
+    )
 
   } catch (err) {
     console.error('Send failed:', err)
@@ -200,43 +310,59 @@ async function sendMessage() {
       discussion.value.comments[targetIndex].isOptimistic = false
       discussion.value.comments[targetIndex].failed = true
     }
+  } finally {
+    newMessage.value = ''
+    replyTarget.value = null
+    editingTarget.value = null
+    showEmojiPicker.value = false
   }
 }
 
-// ——— REST OF YOUR FUNCTIONS (unchanged) ———
-function addEmoji(emoji) {
-  newMessage.value += emoji.native || emoji.i || ''
-  showEmojiPicker.value = false
-}
-function replyToComment(c) {
-  replyTarget.value = { _id: c._id, user_id: c.user._id, username: c.user.username, message: c.message }
-  nextTick(() => document.querySelector('input')?.focus())
-}
 function editComment(c) {
   editingTarget.value = c
   newMessage.value = c.message
   nextTick(() => document.querySelector('input')?.focus())
+  openDropdown.value = null
 }
 function cancelReplyOrEdit() {
   replyTarget.value = null
   editingTarget.value = null
   newMessage.value = ''
 }
-function toggleDropdown(id) { openDropdown.value = openDropdown.value === id ? null : id }
-function reportComment(c) {
+
+const toggleDropdown = (id) => {
+  openDropdown.value = openDropdown.value === id ? null : id
+}
+
+const reportComment = (c) => {
   reportTarget.value = c
   reportReason.value = ''
   reportDetails.value = ''
   const modal = new Modal(document.getElementById('reportModal'))
   modal.show()
+  openDropdown.value = null
 }
-async function submitReport() {
+
+const submitReport = async () => {
   if (!reportReason.value) return alert('Select a reason')
   try {
-    await fetch('/api/users/reports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ commentId: reportTarget.value._id, discussionId, reportedUser: reportTarget.value.user, reason: reportReason.value, details: reportDetails.value, reporter: decoded }) })
+    await fetch('/api/users/reports', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        commentId: reportTarget.value._id,
+        discussionId,
+        reportedUser: reportTarget.value.user,
+        reason: reportReason.value,
+        details: reportDetails.value,
+        reporter: decoded
+      })
+    })
     alert('Report submitted!')
     Modal.getInstance(document.getElementById('reportModal')).hide()
-  } catch (err) { alert('Failed') }
+  } catch (err) {
+    alert('Failed')
+  }
 }
 </script>
 
@@ -256,125 +382,181 @@ async function submitReport() {
       <div class="position-absolute animate-float delay-3" style="top: 7%; right: 10%;"><div class="fs-1">🍭</div></div>
     </div>
 
-    <div class="container py-4" style="position:relative;z-index:2;">
+  <div class="container py-4" style="position: relative; z-index: 2;">
       <div class="row justify-content-center">
         <div class="col-lg-9 col-xl-8">
           <!-- Header -->
-          <div class="d-flex justify-content-between align-items-start mb-4 bg-white rounded-4 shadow-sm p-4 position-relative">
+          <div class="d-flex justify-content-between align-items-start mb-4 mt-4 bg-white rounded-4 shadow-sm p-4">
             <div>
               <h2 class="fw-bold text-primary mb-2">{{ discussion?.title || 'Loading...' }}</h2>
-              <p class="text-muted mb-2">Description: {{ discussion?.description }}</p>
+              <p class="text-muted mb-2">{{ $t('description') }} {{ discussion?.description }}</p>
               <div v-if="discussion?.hashtags?.length" class="mb-2">
-                <span v-for="tag in discussion.hashtags" :key="tag" class="badge bg-info text-white me-2 px-3 py-2">{{ tag }}</span>
+                <span v-for="tag in discussion.hashtags" :key="tag" class="badge bg-info text-white me-2 px-3 py-2">
+                  {{ tag }}
+                </span>
               </div>
             </div>
-            <button @click="router.back()" class="btn btn-outline-primary">Back</button>
-            <!-- Bookmark Icon -->
-            <div class="bookmark-btn" @click.stop="toggleBookmark(discussion?._id)">
-            <i 
-            :class="isBookmarked 
-                ? 'bi bi-bookmark-fill text-warning' 
-                : 'bi bi-bookmark text-muted'"
-            class="fs-2"
-            ></i>
+            <div class="d-flex align-items-center gap-3">
+              <button @click="router.back()" class="btn btn-outline-primary">{{ $t('back') }}</button>
+              <div v-if="decoded" class="bookmark-btn" @click.stop="toggleBookmark(discussion?._id)">
+                <i :class="isBookmarked ? 'bi bi-bookmark-fill text-warning' : 'bi bi-bookmark text-muted'" class="fs-2"></i>
+              </div>
             </div>
           </div>
+<!-- WhatsApp Chat -->
+<div class="bg-white rounded-4 shadow-lg overflow-hidden" style="height: 68vh; display: flex; flex-direction: column;">
+  <!-- Messages -->
+  <div class="flex-grow-1 overflow-auto p-4">
+    <div v-if="!discussion" class="text-center py-5">
+      <div class="spinner-border text-primary"></div>
+    </div>
+    <div v-else-if="!discussion.comments?.length" class="text-center text-muted py-5">
+      <font-awesome-icon :icon="['fas', 'comments']" class="fs-1 mb-3 opacity-50" />
+      <p>{{ $t('noComments') }}</p>
+    </div>
 
-          <!-- Chat -->
-          <div class="bg-white rounded-4 shadow-lg overflow-hidden" style="height:68vh;display:flex;flex-direction:column;">
-            <div class="flex-grow-1 overflow-auto p-4">
-              <div v-if="!discussion" class="text-center py-5"><div class="spinner-border text-primary"></div></div>
-              <div v-else-if="!discussion.comments?.length" class="text-center text-muted py-5">
-                <font-awesome-icon :icon="['fas','comments']" class="fs-1 mb-3 opacity-50" />
-                <p>No comments yet. Be the first to say hello!</p>
-              </div>
+<div class="flex-grow-1 overflow-auto p-4">
+  <div v-for="(comment, index) in sortedComments" :key="comment._id">
+    <!-- Date separator -->
+    <div v-if="index === 0 || isNewDay(comment.timestamp, sortedComments[index-1]?.timestamp)"
+         class="text-center my-4">
+      <span class="badge bg-light text-dark px-3 py-2 rounded-pill">
+        {{ formatFullDate(comment.timestamp) }}
+      </span>
+    </div>
 
-              <template v-for="(c, i) in discussion?.comments" :key="c._id">
-                <!-- Date separator -->
-                <div v-if="i === 0 || new Date(c.timestamp).toDateString() !== new Date(discussion.comments[i-1].timestamp).toDateString()" class="text-center my-3">
-                  <span class="badge bg-light text-dark px-3 py-2">
-                    {{ new Date(c.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) }}
-                  </span>
-                </div>
+    <!-- Single message bubble -->
+    <div class="d-flex mb-4" :class="{ 'justify-content-end': isOwnMessage(comment) }">
+      <!-- Avatar (left for others) -->
+      <div v-if="!isOwnMessage(comment)" class="me-3 align-self-end">
+        <div v-if="comment.user?.profilePicture" class="rounded-circle overflow-hidden" style="width:40px;height:40px;">
+          <img :src="comment.user.profilePicture" class="w-100 h-100 object-fit-cover">
+        </div>
+        <div v-else class="fs-2">{{ comment.user?.profileEmoji || '👤' }}</div>
+      </div>
 
-                <!-- Message -->
-                <div :class="['d-flex mb-3', c.user._id === decoded?._id ? 'justify-content-end' : 'justify-content-start']"
-                  @mouseenter="hoveredComment = c._id" @mouseleave="hoveredComment = null">
+     <div class="rounded-3 px-4 py-3 shadow-sm position-relative"
+     :class="isOwnMessage(comment) ? 'bg-success text-black' : 'bg-light'"
+     style="max-width: 75%;">
 
-                  <div v-if="c.user._id !== decoded?._id" class="me-3 flex-shrink-0">
-                    <div v-if="c.user.profilePicture" class="rounded-circle overflow-hidden" style="width:40px;height:40px;">
-                      <img :src="c.user.profilePicture" class="w-100 h-100" style="object-fit:cover;">
-                    </div>
-                    <div v-else class="fs-2">{{ c.user.profileEmoji || 'person' }}</div>
-                  </div>
+  <!-- Username -->
+  <div v-if="!isOwnMessage(comment)" class="small fw-bold text-primary mb-1">
+    {{ comment.user?.username }}
+  </div>
 
-                  <div class="rounded-4 px-4 py-3 position-relative"
-                    :style="c.user._id === decoded?._id 
-                      ? 'background:#a8e6cf;max-width:75%;border-bottom-right-radius:4px;' 
-                      : 'background:#fff;max-width:75%;box-shadow:0 2px 8px rgba(0,0,0,0.1);border-bottom-left-radius:4px;'">
+  <!-- Quoted preview -->
+  <div v-if="comment.replyTo" class="bg-white bg-opacity-30 rounded-2 px-3 py-2 mb-2 border-start border-3 border-primary">
+    <div class="small opacity-80 text-truncate" style="max-width: 280px;">
+      <strong>{{ comment.replyTo.username }}</strong>: {{ comment.replyTo.message }}
+    </div>
+  </div>
 
-                    <div v-if="c.user._id !== decoded?._id" class="fw-bold text-primary small mb-1">{{ c.user.username }}</div>
+  <!-- Message text -->
+  <div class="mb-2">{{ comment.message }}</div>
 
-                    <div v-if="c.replyTo" class="border-start border-warning border-4 ps-3 mb-2 small text-muted bg-light rounded p-2">
-                      Replying to {{ c.replyTo.user_id === decoded?._id ? 'you' : c.replyTo.username }}
-                      <div class="text-truncate">{{ c.replyTo.message }}</div>
-                    </div>
+  <!-- Bottom row: timestamp + more options button -->
+  <div class="d-flex justify-content-between align-items-center">
+    <div class="small opacity-75">
+      {{ formatTime(comment.timestamp) }}
+      <span v-if="comment.isOptimistic"> sending...</span>
+      <span v-if="comment.failed" class="text-danger"> failed</span>
+    </div>
 
-                    <div class="mb-1 d-flex align-items-center gap-2">
-                      {{ c.message }}
-                    </div>
+    <!-- More Options Button (only when hovered and logged in) -->
+    <div v-if="decoded" class="ms-2">
+      <button 
+        class="btn btn-sm btn-light rounded-circle shadow" 
+        @click.stop="toggleDropdown(comment._id)"
+        style="width: 32px; height: 32px;">
+        ⋯
+      </button>
 
-                    <small class="text-muted">
-                      {{ new Date(c.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) }}
-                    </small>
+      <!-- Dropdown menu -->
+      <ul v-if="openDropdown === comment._id" 
+          class="dropdown-menu show shadow-lg end-0"
+          style="position: absolute; bottom: 40px; min-width: 120px;">
+        <li><a class="dropdown-item small" @click.stop="replyToComment(comment)">{{ $t('reply') }}</a></li>
+        <li v-if="isOwnMessage(comment)">
+          <a class="dropdown-item small text-primary" @click.stop="editComment(comment)">{{ $t('edit') }}</a>
+        </li>
+        <li v-else>
+          <a class="dropdown-item small text-danger" @click.stop="reportComment(comment)">{{ $t('report') }}</a>
+        </li>
+      </ul>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+</div>
+</div>
 
-                    <!-- Dropdown -->
-                    <div v-if="hoveredComment === c._id" class="position-absolute top-0 mt-2"
-                      :style="c.user._id === decoded?._id ? 'right:100%;margin-right:8px;' : 'left:100%;margin-left:8px;'">
-                      <button class="btn btn-sm text-dark p-0" @click.stop="toggleDropdown(c._id)">...</button>
-                      <ul v-if="openDropdown === c._id" class="dropdown-menu show shadow-lg border-0"
-                        :class="c.user._id === decoded?._id ? 'dropdown-menu-end' : 'dropdown-menu-start'" style="min-width:120px;">
-                        <li><a class="dropdown-item small" @click.stop="replyToComment(c)">Reply</a></li>
-                        <li v-if="c.user._id === decoded?._id"><a class="dropdown-item small text-primary" @click.stop="editComment(c)">Edit</a></li>
-                        <li v-else><a class="dropdown-item small text-danger" @click.stop="reportComment(c)">Report</a></li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              </template>
-            </div>
-
-            <!-- Reply Banner -->
-            <div v-if="replyTarget || editingTarget" class="bg-light border-top px-4 py-3 small">
-              <div class="d-flex justify-content-between align-items-center">
-                <div>
-                  <strong v-if="editingTarget" class="text-primary">Editing your message</strong>
-                  <strong v-else class="text-primary">Replying to {{ replyTarget?.user_id === decoded?._id ? 'You' : replyTarget?.username }}</strong>
-                  <div class="text-muted text-truncate mt-1" style="max-width:300px;">{{ editingTarget?.message || replyTarget?.message }}</div>
-                </div>
-                <button class="btn-close" @click="cancelReplyOrEdit"></button>
-              </div>
-            </div>
-
-            <!-- Input -->
-            <div class="border-top bg-white p-3">
-              <div class="input-group">
-                <input v-model="newMessage" @keyup.enter="sendMessage" type="text" class="form-control border-0 shadow-none"
-                  :placeholder="editingTarget ? 'Edit message...' : 'Type a message...'"/>
-                <button class="btn btn-outline-secondary" @click="showEmojiPicker = !showEmojiPicker">😊</button>
-                <button class="btn btn-primary" @click="sendMessage">Send</button>
-              </div>
-              <Teleport to="body">
-                <div v-if="showEmojiPicker" class="position-fixed shadow-lg rounded-4 overflow-hidden"
-                  style="bottom:100px;right:20px;z-index:9999;background:white;">
-                  <EmojiPicker @select="addEmoji" />
-                </div>
-              </Teleport>
-            </div>
-          </div>
+  <!-- Reply/Edit Banner (while typing) -->
+  <div v-if="replyTarget || editingTarget" class="bg-light border-top px-4 py-3 small">
+    <div class="d-flex justify-content-between align-items-start">
+      <div class="flex-grow-1 me-3">
+        <div class="fw-bold text-primary mb-1">
+          {{ editingTarget ? $t('editingMessage') : $t('replyingToYou', { username: replyTarget?.user_id === decoded?._id ? $t('you') : replyTarget?.username }) }}
+        </div>
+        <div class="text-muted small text-truncate">
+          {{ editingTarget?.message || replyTarget?.message }}
         </div>
       </div>
+      <button class="btn-close" @click="cancelReplyOrEdit"></button>
     </div>
+  </div>
+
+    <!-- Input -->
+    <div class="border-top bg-white p-3">
+    <!-- Logged-in: Full chat input -->
+    <div v-if="decoded" class="input-group">
+        <input
+        v-model="newMessage"
+        @keyup.enter="sendMessage"
+        type="text"
+        class="form-control border-0 shadow-none rounded-pill px-4"
+        placeholder="Type a message..."
+        style="height: 48px;"
+        />
+        <button class="btn btn-outline-secondary rounded-circle mx-2" @click="showEmojiPicker = !showEmojiPicker">
+        😊
+        </button>
+        <button class="btn btn-success rounded-circle" @click="sendMessage">
+        <i class="bi bi-send-fill"></i>
+        </button>
+    </div>
+
+    <!-- Not logged in: Show message with Sign Up link -->
+    <div v-else class="text-center py-3">
+        <p class="text-muted mb-3">
+        {{ $t('signUpToChat') }}
+        </p>
+        <router-link to="/signup" class="btn btn-primary rounded-pill px-5">
+        {{ $t('signUpMoreFeatures') }}
+        </router-link>
+        <div class="mt-3">
+        <small class="text-muted">
+            {{ $t('alreadyAccount') }}
+            <router-link to="/login" class="text-primary fw-semibold">{{ $t('logIn') }}</router-link>
+        </small>
+        </div>
+    </div>
+
+    <!-- Emoji Picker (only for logged-in users) -->
+    <Teleport to="body">
+        <div
+        v-if="showEmojiPicker && decoded"
+        class="position-fixed shadow-lg rounded-4 overflow-hidden"
+        style="bottom: 100px; right: 20px; z-index: 9999; background: white;"
+        >
+        <EmojiPicker @select="addEmoji" />
+        </div>
+    </Teleport>
+    </div>
+</div>
+</div>
+</div>
+  </div>
   </div>
 
   <!-- Report Modal -->
@@ -382,23 +564,23 @@ async function submitReport() {
     <div class="modal-dialog">
         <div class="modal-content">
         <div class="modal-header bg-danger text-white">
-            <h5 class="modal-title">Report Comment</h5>
+            <h5 class="modal-title">{{ $t('reportComment') }}</h5>
             <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-            <p>Reporting: <strong>{{ reportTarget?.user?.username }}</strong></p>
+            <p>{{ $t('reportingUser') }} <strong>{{ reportTarget?.user?.username }}</strong></p>
             <blockquote class="border-start border-danger ps-3">{{ reportTarget?.message }}</blockquote>
             <select v-model="reportReason" class="form-select mb-3">
-            <option value="">Select reason</option>
-            <option>Spam</option>
-            <option>Harassment</option>
-            <option>Inappropriate</option>
+            <option value="">{{ $t('selectReason') }}</option>
+            <option value="Spam">{{ $t('reportSpam') }}</option>
+            <option value="Harassment">{{ $t('reportHarassment') }}</option>
+            <option value="Inappropriate">{{ $t('reportInappropriate') }}</option>
             </select>
-            <textarea v-model="reportDetails" class="form-control" rows="3" placeholder="More details (optional)"></textarea>
+            <textarea v-model="reportDetails" class="form-control" rows="3" :placeholder="$t('moreDetails')"></textarea>
         </div>
         <div class="modal-footer">
-            <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-            <button class="btn btn-danger" @click="submitReport">Submit Report</button>
+            <button class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('cancel') }}</button>
+            <button class="btn btn-danger" @click="submitReport">{{ $t('submitReport') }}</button>
         </div>
         </div>
     </div>

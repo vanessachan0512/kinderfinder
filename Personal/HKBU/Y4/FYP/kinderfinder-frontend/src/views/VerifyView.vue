@@ -1,6 +1,9 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
+import { useI18n } from 'vue-i18n'; // ← ADD THIS
+
+const { t } = useI18n(); // ← ADD THIS LINE
 
 // Reactive states
 const email = ref('');  // Set this via props or route params
@@ -57,7 +60,7 @@ const resendCode = async () => {
   
   if (!email.value) {
     hideSpinner();
-    alert('Email not set. Cannot resend verification code.');
+    alert(t('emailNotSet'));
     return;
   }
 
@@ -78,10 +81,10 @@ const resendCode = async () => {
 
     const data = await response.json();
     hideSpinner();
-    alert(`A new verification code has been sent to ${data.email}.`);
+    alert(t('resendSuccess', { email: data.email }));
   } catch (error) {
     hideSpinner();
-    alert(error.message);
+    alert(error.message || t('resendFailed'));
   }
 };
 
@@ -104,11 +107,11 @@ onMounted(() => {
 
 <template>
   <div class="content">
-    <h2 class="text-center">Verify Your Email</h2>
+    <h2 class="text-center">{{ $t('verifyEmailTitle') }}</h2>
     <p class="text-center">
-      To safeguard every user, please verify your email. KinderFinder has sent you a verification code to your email.
+      {{ $t('verifyEmailText1') }}
     </p>
-    <p class="text-center">Please check your email!</p>
+    <p class="text-center">{{ $t('verifyEmailText2') }}</p>
 
     <form @submit.prevent="verifyEmail" id="verifyForm">
       <input type="hidden" name="email" :value="email">
@@ -120,10 +123,10 @@ onMounted(() => {
           required
           placeholder="Verification Code"
         />
-        <button type="button" class="btn btn-secondary" @click="resendCode">Resend</button>
+        <button type="button" class="btn btn-secondary" @click="resendCode">{{ $t('resendButton') }}</button>
       </div>
       <div class="text-center"> 
-        <button type="submit" class="btn btn-primary">Submit</button>
+        <button type="submit" class="btn btn-primary">{{ $t('submitButton') }}</button>
       </div>
     </form>
     
@@ -134,7 +137,7 @@ onMounted(() => {
     </div>
 
     <div v-if="loading" class="spinner-border text-primary spinner" role="status">
-      <span class="visually-hidden">Loading...</span>
+      <span class="visually-hidden">{{ $t('loading') }}</span>
     </div>
   </div>
 </template>

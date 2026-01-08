@@ -152,19 +152,19 @@ onMounted(() => {
 <template>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
 
-  <div class="container mt-4 pb-5">
+  <div class="container mt-5 pb-5">
     <!-- Header -->
     <div class="d-flex justify-content-between align-items-center mb-4">
       <div>
-        <h2 class="mb-1 fw-bold text-primary">Discussion Board</h2>
+        <h2 class="mb-1 fw-bold text">{{ $t('discussionBoard') }}</h2>
         <p class="text-muted mb-0">
-          Page {{ currentPage }} of {{ totalPages }} 
-          <span v-if="search"> • Searching "{{ search }}"</span>
+          {{ $t('pageOf', { current: currentPage, total: totalPages }) }}
+          <span v-if="search"> • {{ $t('searching', { query: search }) }}</span>
         </p>
       </div>
 
-      <button class="btn btn-primary btn-md shadow-sm px-4" @click="goToAdd">
-        Add Discussion
+      <button v-if="decoded" class="btn btn-primary btn-md shadow-sm px-4" @click="goToAdd">
+        {{ $t('addDiscussion') }}
       </button>
     </div>
 
@@ -173,13 +173,13 @@ onMounted(() => {
       <div class="col-lg-8">
         <div class="input-group input-group-lg shadow-sm rounded-pill overflow-hidden">
           <span class="input-group-text bg-white border-0">
-            Search
+            {{ $t('search') }}
           </span>
           <input
             v-model="search"
             type="text"
             class="form-control border-0 shadow-none"
-            placeholder="Search by title or #hashtag..."
+            :placeholder="$t('searchPlaceholder2')"
             autofocus
           />
           <button
@@ -187,11 +187,11 @@ onMounted(() => {
             class="btn btn-outline-secondary border-0"
             @click="search = ''; currentPage = 1; loadDiscussions()"
           >
-            Clear
+            {{ $t('clear') }}
           </button>
         </div>
         <small class="text-muted d-block mt-2 text-center">
-          Type to search instantly • Try: school, parent, #kindergarten
+          {{ $t('searchHint') }}
         </small>
       </div>
     </div>
@@ -226,7 +226,7 @@ onMounted(() => {
             @click="goToDetail(d)"
             >
             <!-- Bookmark Icon -->
-            <div class="bookmark-btn" @click.stop="toggleBookmark(d._id)">
+            <div v-if="decoded" class="bookmark-btn" @click.stop="toggleBookmark(d._id)">
             <i 
                 :class="bookmarks.includes(d._id) 
                 ? 'fa-solid fa-bookmark text-warning' 
@@ -256,12 +256,14 @@ onMounted(() => {
                 </div>
 
                 <small class="text-muted d-block">
-                  Last updated {{ new Date(d.updatedAt).toLocaleDateString('en-US', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit'
+                  {{ $t('lastUpdated', { 
+                    date: new Date(d.updatedAt).toLocaleDateString('en-US', {
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })
                   }) }}
                 </small>
               </div>
@@ -276,8 +278,8 @@ onMounted(() => {
       <!-- Empty State -->
       <div v-if="discussions.length === 0" class="text-center py-5">
         <i class="fas fa-comments fs-1 text-muted mb-4 opacity-50"></i>
-        <h4 class="text-muted">No discussions found</h4>
-        <p class="text-muted">Try a different search or start a new discussion!</p>
+        <h4 class="text-muted">{{ $t('noDiscussions') }}</h4>
+        <p class="text-muted">{{ $t('noDiscussionsHint') }}</p>
       </div>
 
       <!-- Pagination (disabled during loading) -->
@@ -285,7 +287,7 @@ onMounted(() => {
         <ul class="pagination justify-content-center pagination-lg">
           <li class="page-item" :class="{ disabled: currentPage === 1 || isLoading }">
             <button class="page-link" @click="goToPage(currentPage - 1)" :disabled="currentPage === 1 || isLoading">
-              Previous
+              {{ $t('previous') }}
             </button>
           </li>
 
@@ -310,7 +312,7 @@ onMounted(() => {
 
           <li class="page-item" :class="{ disabled: currentPage === totalPages || isLoading }">
             <button class="page-link" @click="goToPage(currentPage + 1)" :disabled="currentPage === totalPages || isLoading">
-              Next
+              {{ $t('next') }}
             </button>
           </li>
         </ul>

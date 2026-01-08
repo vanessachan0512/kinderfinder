@@ -4,13 +4,11 @@
 
 <template>
     <div class="content mt-5">
-        <h1>You have successfully verified your account!</h1>
+        <h1>{{ $t('verificationSuccessTitle') }}</h1>
         <p>
-            To let KinderFinder know more about you for your personalised function.
-            Don't forget to fill in the information in your Personal Profile.
-            Let KinderFinder get to know more about you!
+            {{ $t('verificationSuccessText') }}
         </p>
-        <router-link to="/login" class="login-button">Login</router-link>
+        <router-link to="/login" class="login-button">{{ $t('loginButton') }}</router-link>
     </div>
 </template>
 

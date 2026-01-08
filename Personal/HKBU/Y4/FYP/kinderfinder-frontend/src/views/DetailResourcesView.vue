@@ -16,56 +16,63 @@ const decoded = token ? jwtDecode(token) : null
 const userId = decoded?._id
 
 const articleId = route.params.articleId?.toString()
-const sectionId = route.params.sectionID
+const sectionID = route.params.sectionID?.toString()  // ← now used
 
 const store = useResourceDetailStore()
 
-// === Instant load from Pinia store ===
-const loadedFromStore = ref(false)
+// === Instant load from Pinia store (when navigating from list/bookmarks) ===
+let loadedFromStore = false
 
 if (store.passedArticle) {
   article.value = store.passedArticle
-  loadedFromStore.value = true
+  loadedFromStore = true
 }
 
 if (store.passedIsBookmarked !== null) {
   isBookmarked.value = store.passedIsBookmarked
-  console.log('Initial bookmark from store:', isBookmarked.value)
-  loadedFromStore.value = true
+  console.log('Bookmark status from store:', isBookmarked.value)
+  loadedFromStore = true
 }
 
-// Clear store when leaving the page (prevents stale data on direct access)
+// Clear store when leaving
 onUnmounted(() => {
   store.clearPassedData()
 })
 
 // === Fallback: Load from backend if not from store ===
 const loadArticleAndBookmark = async () => {
-  if (!articleId || !userId) {
+  if (!articleId || !sectionID) {
     isLoading.value = false
     return
   }
 
   try {
-    // Fetch article only if not provided by store
+    // Load article if not from store
     if (!article.value) {
-      const articleRes = await fetch(`/api/resources/detail/${sectionId}/${articleId}`)
+      const articleRes = await fetch(`/api/resources/detail/${sectionID}/${articleId}`)
       if (!articleRes.ok) throw new Error('Article not found')
       const articleData = await articleRes.json()
       article.value = articleData.article
     }
 
-    // Fetch bookmark status only if not provided by store
-    if (!loadedFromStore.value) {
+    // Load bookmark status if not from store
+    if (!loadedFromStore && userId) {
       const userRes = await fetch(`/api/users/${userId}`)
       if (userRes.ok) {
         const userData = await userRes.json()
-        const bookmarkIds = (userData.resourcesBookmark || []).map(id => id.toString())
-        isBookmarked.value = bookmarkIds.includes(articleId)
+
+        const serverBookmarks = (userData.resourcesBookmark || []).map(b => ({
+          articleId: b.articleId?.toString() || b.articleId,
+          sectionID: b.sectionID?.toString() || b.sectionID
+        }))
+
+        isBookmarked.value = serverBookmarks.some(
+          b => b.articleId === articleId && b.sectionID === sectionID
+        )
       }
     }
   } catch (err) {
-    console.error('Failed to load article or bookmark status:', err)
+    console.error('Failed to load article or bookmark:', err)
   } finally {
     isLoading.value = false
   }
@@ -75,9 +82,9 @@ onMounted(() => {
   loadArticleAndBookmark()
 })
 
-// === Optimistic Bookmark Toggle ===
+// === Toggle Bookmark (with both IDs) ===
 const toggleBookmark = async () => {
-  if (!userId || !articleId) return
+  if (!userId || !articleId || !sectionID) return
 
   const previous = isBookmarked.value
 
@@ -88,16 +95,32 @@ const toggleBookmark = async () => {
     const res = await fetch(`/api/users/${userId}/bookmark`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ articleId })
+      body: JSON.stringify({ 
+        articleId, 
+        sectionID 
+      })
     })
 
-    if (!res.ok) throw new Error("Failed to update bookmark")
+    if (!res.ok) {
+      const errorText = await res.text()
+      throw new Error(`Failed: ${errorText || res.status}`)
+    }
 
     const data = await res.json()
-    const bookmarkIds = data.resourcesBookmark.map(id => id.toString())
-    isBookmarked.value = bookmarkIds.includes(articleId)
+
+    // Sync with server
+    const serverBookmarks = (data.resourcesBookmark || []).map(b => ({
+      articleId: b.articleId.toString(),
+      sectionID: b.sectionID.toString()
+    }))
+
+    isBookmarked.value = serverBookmarks.some(
+      b => b.articleId === articleId && b.sectionID === sectionID
+    )
+
   } catch (err) {
-    console.error("Bookmark failed:", err)
+    console.error("Bookmark sync failed:", err)
+    alert("Failed to update bookmark. Reverted.")
     isBookmarked.value = previous // rollback
   }
 }
@@ -115,31 +138,36 @@ const toggleBookmark = async () => {
 
     <!-- Article Content -->
     <div v-else-if="article" class="position-relative">
-        <div class="text">
+    <button @click="router.back()" class="btn btn-outline-secondary">
+    <font-awesome-icon icon="arrow-left" class="me-2" />
+    Back
+    </button>
+
+
+      <div class="text">
         <h2 class="fw-bold">{{ article.title }}</h2>
         <p class="text-muted lead">{{ article.description }}</p>
       </div>
+
       <!-- Bookmark Button -->
-      <div class="bookmark-btn" @click.stop="toggleBookmark">
+      <div v-if="decoded" class="bookmark-btn" @click.stop="toggleBookmark">
         <i 
           :class="isBookmarked 
-            ? 'bi bi-bookmark-fill text-warning' 
-            : 'bi bi-bookmark text-muted'"
-          class="fs-2"
+            ? 'bi bi-bookmark-fill text-warning fs-2' 
+            : 'bi bi-bookmark text-muted fs-2'"
         ></i>
       </div>
 
-       <div class="iframe-container">
-      <!-- Vue binding instead of EJS -->
-      <iframe
-        :src="article.embedLink"
-        frameborder="0"
-        allowfullscreen
-      ></iframe>
-    </div>
+      <div class="iframe-container">
+        <iframe
+          :src="article.embedLink"
+          frameborder="0"
+          allowfullscreen
+        ></iframe>
+      </div>
     </div>
 
-    <!-- Error -->
+    <!-- Not Found -->
     <div v-else class="text-center py-5 text-muted">
       <p>Article not found.</p>
       <button @click="router.back()" class="btn btn-outline-primary rounded-pill">
@@ -150,18 +178,10 @@ const toggleBookmark = async () => {
 </template>
 
 <style scoped>
-.content {
-  flex: 1;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
 .iframe-container {
   width: 100%;
   max-width: 300%;
   height: 90vh;
-  /* margin-top: 5%; */
 }
 
 iframe {
@@ -169,20 +189,22 @@ iframe {
   height: 200%;
   border: none;
 }
+
 .bookmark-btn {
   position: absolute;
-  top: 3px;
+  top: 10px;
   right: 20px;
-  z-index: 9999;
-  background: rgba(255,255,255,0.85);
-  padding: 8px 12px;
+  /* z-index: 9999; */
+  background: rgba(255,255,255,0.9);
+  padding: 10px 14px;
   border-radius: 50%;
   cursor: pointer;
-  transition: transform 0.2s ease;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 
 .bookmark-btn:hover {
   transform: scale(1.15);
+  background: white;
 }
-
 </style>

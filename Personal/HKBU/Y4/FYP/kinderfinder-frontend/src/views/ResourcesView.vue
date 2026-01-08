@@ -12,73 +12,109 @@ const decoded = token ? jwtDecode(token) : null
 const userId = decoded?._id;
 const bookmarks = ref([]);
 
-if (decoded && Array.isArray(decoded.resourcesBookmark)) {
-  // If your backend puts resourcesBookmark directly in the JWT payload
-  bookmarks.value = decoded.resourcesBookmark
-    .map(id => typeof id === 'string' ? id : id.toString())
-  console.log('Bookmarks loaded instantly from JWT:', bookmarks.value)
-}
+// Loading states
+const isLoading = ref(false)
+const isFirstLoad = ref(true)
+
+// Search
+const search = ref(route.query.search || '')
+
+
+// if (decoded && Array.isArray(decoded.resourcesBookmark)) {
+//   // If your backend puts resourcesBookmark directly in the JWT payload
+//   bookmarks.value = decoded.resourcesBookmark
+//     .map(id => typeof id === 'string' ? id : id.toString())
+//   console.log('Bookmarks loaded instantly from JWT:', bookmarks.value)
+// }
 
 // ✅ Load bookmarks from backend
 onMounted(async () => {
-  if (!userId) {
-    console.log('No user logged in — no bookmarks to load')
-    return
+
+    isLoading.value = true
+  // First: Load bookmarks (must complete before rendering resources)
+  if (userId) {
+    try {
+      const res = await fetch(`/api/users/${userId}`)
+      if (!res.ok) throw new Error('Failed to fetch user data')
+
+      const data = await res.json()
+        
+      // any existing bookmarks from server
+      const serverResourceBookmarks = (data.resourcesBookmark || []).map(b => ({
+        articleId: b.articleId?.toString() || b.articleId,
+        sectionID: b.sectionID?.toString() || b.sectionID
+      }))
+
+      bookmarks.value = serverResourceBookmarks
+      console.log('Bookmarks loaded:', bookmarks.value) // ← you should see this
+
+    } catch (err) {
+      console.error("Failed to load bookmarks:", err)
+    }
   }
 
-  try {
-    const res = await fetch(`/api/users/${userId}`)
-    if (!res.ok) throw new Error('Failed to fetch user data')
-
-    const data = await res.json()
-
-    // This overwrites the instant JWT version with the authoritative server version
-    const serverBookmarks = (data.resourcesBookmark || []).map(id => 
-      typeof id === 'string' ? id : id.toString()
-    )
-
-    bookmarks.value = serverBookmarks
-    console.log('Bookmarks synced from server:', bookmarks.value)
-
-  } catch (err) {
-    console.error("Failed to load resource bookmarks from server:", err)
-    // Keep the JWT version if server fails (better than nothing)
-  }
+  // Second: Now load resources (after bookmarks are ready)
+  await fetchPage(page.value)
 })
 
-// ✅ Optimistic UI toggle
-const toggleBookmark = async (articleId) => {
-  const idStr = articleId.toString();
+const isBookmarked = (articleId, sectionId) => {
+  const aId = String(articleId || '')
+  const sId = String(sectionId || '')
 
-  // Save previous state for rollback
+  return bookmarks.value.some(b => b.articleId === aId && b.sectionID === sId)
+}
+
+// ✅ Optimistic UI toggle
+const toggleBookmark = async (articleId, sectionID) => {
+  const articleIdStr = articleId.toString();
+  const sectionIdStr = sectionID.toString();
+
+  // Save previous state
   const previous = [...bookmarks.value];
 
-  // ✅ Instant UI update
-  if (bookmarks.value.includes(idStr)) {
-    bookmarks.value = bookmarks.value.filter(id => id !== idStr);
+  // ✅ Optimistic UI update — SAFE way
+  const exists = bookmarks.value.some(
+    b => b.articleId === articleIdStr && b.sectionID === sectionIdStr
+  );
+
+  if (exists) {
+    // Remove by matching properties (safe for reactivity)
+    bookmarks.value = bookmarks.value.filter(
+      b => !(b.articleId === articleIdStr && b.sectionID === sectionIdStr)
+    );
   } else {
-    bookmarks.value.push(idStr);
+    // Add new
+    bookmarks.value = [
+      ...bookmarks.value,
+      { articleId: articleIdStr, sectionID: sectionIdStr }
+    ];
   }
 
-  // ✅ Backend update
   try {
     const res = await fetch(`/api/users/${decoded._id}/bookmark`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ articleId })
+      body: JSON.stringify({ articleId, sectionID })
     });
 
-    if (!res.ok) throw new Error("Backend failed");
+    if (!res.ok) {
+      const errorText = await res.text();
+      throw new Error(`Failed: ${errorText || res.status}`);
+    }
 
     const data = await res.json();
 
-    // Sync with backend
-    bookmarks.value = data.resourcesBookmark.map(id => id.toString());
+    // Sync with server (safe mapping)
+    bookmarks.value = (data.resourcesBookmark || []).map(b => ({
+      articleId: b.articleId.toString(),
+      sectionID: b.sectionID.toString()
+    }));
 
   } catch (err) {
-    console.error("Bookmark toggle failed:", err);
+    console.error("Bookmark sync failed:", err);
+    alert("Failed to save bookmark. Reverted.");
 
-    // Rollback UI
+    // Rollback
     bookmarks.value = previous;
   }
 };
@@ -90,34 +126,43 @@ const perPage = ref(6)
 const totalPages = ref(1)
 const activeSection = ref('')
 
-// Loading states
-const isLoading = ref(false)
-const isFirstLoad = ref(true)
-
 // Magic cache: page number → data
 const pageCache = ref(new Map())
 
 // Fetch + cache + instant UI
+// === Fetch page with search & pagination ===
 async function fetchPage(pageNum) {
-  if (pageCache.value.has(pageNum)) {
-    const cached = pageCache.value.get(pageNum)
+  const cacheKey = `${pageNum}-${search.value.trim()}`
+
+  // Use cache if available
+  if (pageCache.value.has(cacheKey)) {
+    const cached = pageCache.value.get(cacheKey)
     sections.value = cached.sections
     totalPages.value = cached.totalPages
     page.value = pageNum
-    activeSection.value = sections.value[0]?.section || ''
+    if (sections.value.length > 0 && !activeSection.value) {
+      activeSection.value = sections.value[0].section
+    }
     isLoading.value = false
     return
   }
 
-  if (isFirstLoad.value) isLoading.value = true
+  isLoading.value = true
 
   try {
-    const res = await fetch(`/api/resources?page=${pageNum}&perPage=${perPage.value}`)
-    if (!res.ok) throw new Error('Failed to fetch')
+    const params = new URLSearchParams({
+      page: pageNum,
+      perPage: perPage.value,
+      search: search.value.trim()
+    })
+
+    const res = await fetch(`/api/resources?${params.toString()}`)
+    if (!res.ok) throw new Error('Failed to fetch resources')
 
     const data = await res.json()
 
-    pageCache.value.set(pageNum, {
+    // Cache result
+    pageCache.value.set(cacheKey, {
       sections: data.sections || [],
       totalPages: data.totalPages || 1
     })
@@ -130,14 +175,39 @@ async function fetchPage(pageNum) {
       activeSection.value = sections.value[0].section
     }
 
-    router.replace({ query: { ...route.query, page: pageNum } }).catch(() => {})
+    // Update URL
+    router.replace({
+      query: {
+        page: pageNum > 1 ? pageNum : undefined,
+        search: search.value.trim() || undefined
+      }
+    }).catch(() => {})
+
   } catch (err) {
     console.error('Load failed:', err)
     sections.value = []
+    totalPages.value = 1
   } finally {
     isLoading.value = false
     isFirstLoad.value = false
   }
+}
+
+// === Debounced search ===
+let searchTimeout
+watch(search, () => {
+  clearTimeout(searchTimeout)
+  searchTimeout = setTimeout(() => {
+    page.value = 1
+    fetchPage(1)
+  }, 600)
+})
+
+// === Clear search ===
+const clearSearch = () => {
+  search.value = ''
+  page.value = 1
+  fetchPage(1)
 }
 
 // INSTANT EDIT: Pass full article data via state
@@ -165,7 +235,11 @@ function goToEdit(section, article) {
 
 const goToDetail = (sectionId, article) => {
   const store = useResourceDetailStore()
-  store.setPassedData(article, bookmarks.value.includes(article.objectId.toString()))
+  
+  // ← CORRECT: use the helper that checks objects
+  const bookmarked = isBookmarked(article.objectId, sectionId)
+
+  store.setPassedData(article, bookmarked)
 
   router.push({
     name: "DetailResources",
@@ -176,33 +250,24 @@ const goToDetail = (sectionId, article) => {
   })
 }
 
-// Page navigation
+// === Pagination navigation ===
 function goToPage(newPage) {
   if (newPage < 1 || newPage > totalPages.value || newPage === page.value) return
   page.value = newPage
-  router.push({ query: { ...route.query, page: newPage } }).catch(() => {})
   fetchPage(newPage)
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
-// First load
-onMounted(() => {
-  fetchPage(page.value)
-})
-
-// Browser back/forward
+// === Sync route changes (back/forward) ===
 watch(() => route.query.page, (newVal) => {
   const p = parseInt(newVal) || 1
   if (p !== page.value) goToPage(p)
 })
-
-// Preload next page
-watch(page, (current) => {
-  if (current < totalPages.value) {
-    const next = current + 1
-    if (!pageCache.value.has(next)) {
-      fetch(`/api/resources?page=${next}&perPage=${perPage.value}`)
-    }
+watch(() => route.query.search, (newVal) => {
+  if (newVal !== search.value) {
+    search.value = newVal || ''
+    page.value = 1
+    fetchPage(1)
   }
 })
 </script>
@@ -212,14 +277,42 @@ watch(page, (current) => {
 
     <div class="d-flex align-items-center justify-content-between mb-4">
       <div>
-        <h2 class="mb-1 fw-bold text">Resources</h2>
-        <p class="text-muted mb-0">Click on your interested section!</p>
+        <h2 class="mb-1 fw-bold text">{{ $t('resourcesTitle') }}</h2>
+        <p class="text-muted mb-0">{{ $t('resourcesSubtitle') }}</p>
       </div>
-        <div v-if="decoded && decoded.isAdmin === false">
+        <div v-if="decoded && decoded.isAdmin === true">
             <RouterLink class="btn btn-primary" to="/resource/add">
-                Add Resource
+                {{ $t('addResource') }}
             </RouterLink>
         </div>
+    </div>
+
+    <!-- NEW: Search Bar -->
+    <div class="row justify-content-center mb-4">
+      <div class="col-lg-8">
+        <div class="input-group input-group-lg shadow-sm rounded-pill overflow-hidden">
+          <span class="input-group-text bg-white border-0">
+            {{ $t('search') }}
+          </span>
+          <input
+            v-model="search"
+            type="text"
+            class="form-control border-0 shadow-none"
+            :placeholder="$t('searchResourcesPlaceholder')"
+            autofocus
+          />
+          <button
+            v-if="search"
+            class="btn btn-outline-secondary border-0"
+            @click="clearSearch"
+          >
+            {{ $t('clear') }}
+          </button>
+        </div>
+        <small class="text-muted d-block mt-2 text-center">
+          {{ $t('searchHintResources') }}
+        </small>
+      </div>
     </div>
 
     <!-- SKELETON: Only first load -->
@@ -280,13 +373,12 @@ watch(page, (current) => {
           <div class="row row-cols-1 row-cols-md-3 g-4">
             <div v-for="article in section.articles" :key="article.objectId" class="col">
               <div class="card h-100 shadow-sm hover-shadow transition-all border-0 overflow-hidden position-relative">
-                <!-- ✅ Bookmark Icon -->
-                <div class="bookmark-btn" @click.stop="toggleBookmark(article.objectId)">
+                <!-- Bookmark Icon -->
+                <div v-if="decoded" class="bookmark-btn position-absolute top-0 end-0 p-3" @click.stop="toggleBookmark(article.objectId, section._id)">
                 <i 
-                    :class="bookmarks.includes(article.objectId.toString()) 
-                    ? 'bi bi-bookmark-fill text-warning' 
-                    : 'bi bi-bookmark'"
-                    class="fs-3"
+                    :class="isBookmarked(article.objectId, section._id) 
+                    ? 'bi bi-bookmark-fill text-warning fs-3' 
+                    : 'bi bi-bookmark text-muted fs-3'"
                 ></i>
                 </div>
                <div
@@ -309,13 +401,13 @@ watch(page, (current) => {
                     </p>
                   </div>
                 </div>
-                <div v-if="decoded && decoded.isAdmin === false" class="card-footer bg-white border-top-0 pt-3">
+                <div v-if="decoded && decoded.isAdmin === true" class="card-footer bg-white border-top-0 pt-3">
                   <!-- INSTANT EDIT BUTTON -->
                   <button
                     @click.stop="goToEdit(section, article)"
                     class="btn btn-sm btn-outline-primary w-100"
                   >
-                    Edit Article
+                    {{ $t('editArticle') }}
                   </button>
                 </div>
               </div>
@@ -323,7 +415,7 @@ watch(page, (current) => {
           </div>
 
           <div v-if="section.articles.length === 0" class="text-center py-5 text-muted">
-            No articles in this section yet.
+            {{ $t('noArticles') }}
           </div>
         </div>
       </div>
@@ -333,7 +425,7 @@ watch(page, (current) => {
         <ul class="pagination justify-content-center">
           <li class="page-item" :class="{ disabled: page <= 1 }">
             <button class="page-link" @click="goToPage(page - 1)" :disabled="page <= 1">
-              Previous
+              {{ $t('previous') }}
             </button>
           </li>
 
@@ -352,7 +444,7 @@ watch(page, (current) => {
 
           <li class="page-item" :class="{ disabled: page >= totalPages }">
             <button class="page-link" @click="goToPage(page + 1)" :disabled="page >= totalPages">
-              Next
+              {{ $t('next') }}
             </button>
           </li>
         </ul>
