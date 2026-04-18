@@ -1,1 +1,0 @@
-import{z as t}from"./index-Awz5j45B.js";const r=t("kindergartenDetail",{state:()=>({passedData:null,passedBookmarkStatus:null}),actions:{setPassedData(a,s){this.passedData=a,this.passedBookmarkStatus=s},clearPassedData(){this.passedData=null,this.passedBookmarkStatus=null}},persist:!0});export{r as u};
