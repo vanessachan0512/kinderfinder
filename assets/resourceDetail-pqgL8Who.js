@@ -1,0 +1,1 @@
+import{z as r,r as s}from"./index-BXWzx9i9.js";const c=r("resourceDetail",()=>{const e=s(null),a=s(null);return{passedArticle:e,passedIsBookmarked:a,setPassedData:(t,l)=>{e.value=t,a.value=l},clearPassedData:()=>{e.value=null,a.value=null}}});export{c as u};
